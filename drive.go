@@ -18,6 +18,14 @@ type Drive struct {
 	cfg     driveConfig
 }
 
+// log returns the configured logger, falling back to slog.Default().
+func (d *Drive) log() *slog.Logger {
+	if d.cfg.logger != nil {
+		return d.cfg.logger
+	}
+	return slog.Default()
+}
+
 // Info returns drive identification from INQUIRY probe.
 func (d *Drive) Info() DriveInfo { return d.info }
 
@@ -72,7 +80,7 @@ func Open(ctx context.Context, session *uiscsi.Session, lun uint64, opts ...Opti
 	if err != nil {
 		return nil, fmt.Errorf("tape: READ BLOCK LIMITS failed: %w", err)
 	}
-	// Execute does NOT return error on CHECK CONDITION -- must check status.
+	// Execute returns raw status -- interpret via tape-specific sense parsing.
 	if result.Status != 0 {
 		senseErr := interpretSense(result.Status, result.SenseData)
 		if senseErr != nil {
