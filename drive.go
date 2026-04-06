@@ -2,11 +2,18 @@ package tape
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/rkujawa/uiscsi"
 	"github.com/rkujawa/uiscsi-tape/internal/ssc"
+)
+
+const (
+	turRetryInterval = 1 * time.Second
+	turMaxRetries    = 30 // 30 seconds — tape loads can take a while
 )
 
 // Drive represents an opened SSC tape drive over an iSCSI session.
@@ -32,6 +39,39 @@ func (d *Drive) Info() DriveInfo { return d.info }
 // Limits returns block size limits from READ BLOCK LIMITS probe.
 func (d *Drive) Limits() BlockLimits { return d.limits }
 
+// pollUnitReady sends TEST UNIT READY in a loop, retrying on UNIT ATTENTION
+// (sense key 0x06) and NOT READY (sense key 0x02). These are normal after
+// media insertion — the drive needs time to load the tape. Returns nil once
+// the drive reports GOOD, or the last error after turMaxRetries attempts.
+func pollUnitReady(ctx context.Context, session *uiscsi.Session, lun uint64, log *slog.Logger) error {
+	for attempt := range turMaxRetries {
+		err := session.TestUnitReady(ctx, lun)
+		if err == nil {
+			return nil
+		}
+
+		// Check if this is a retriable SCSI error (UNIT ATTENTION or NOT READY).
+		var se *uiscsi.SCSIError
+		if errors.As(err, &se) && (se.SenseKey == 0x06 || se.SenseKey == 0x02) {
+			log.Debug("tape: drive not yet ready, retrying",
+				"attempt", attempt+1,
+				"sense_key", fmt.Sprintf("0x%02X", se.SenseKey),
+				"asc", fmt.Sprintf("0x%02X", se.ASC),
+			)
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(turRetryInterval):
+				continue
+			}
+		}
+
+		// Non-retriable error.
+		return err
+	}
+	return fmt.Errorf("tape: drive not ready after %d attempts", turMaxRetries)
+}
+
 // Open probes an iSCSI LUN and returns a Drive if it is a tape device.
 // The probe sequence is: TEST UNIT READY, INQUIRY (device type 0x01 check),
 // READ BLOCK LIMITS. All three must succeed for Open to return a Drive.
@@ -47,9 +87,12 @@ func Open(ctx context.Context, session *uiscsi.Session, lun uint64, opts ...Opti
 		log = slog.Default()
 	}
 
-	// Step 1: TEST UNIT READY
-	log.Debug("tape: probe step 1 -- TEST UNIT READY", "lun", lun)
-	if err := session.TestUnitReady(ctx, lun); err != nil {
+	// Step 1: TEST UNIT READY — poll until the drive is ready.
+	// After media insertion, tape drives report UNIT ATTENTION ("medium
+	// may have changed") and/or NOT READY ("becoming ready") for several
+	// seconds while the tape loads. This is normal SSC behavior.
+	log.Debug("tape: probe step 1 -- TEST UNIT READY (polling)", "lun", lun)
+	if err := pollUnitReady(ctx, session, lun, log); err != nil {
 		return nil, fmt.Errorf("tape: drive not ready: %w", err)
 	}
 
