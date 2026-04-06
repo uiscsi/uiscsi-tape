@@ -258,6 +258,61 @@ func TestWriteFilemarks(t *testing.T) {
 	}
 }
 
+func TestPosition(t *testing.T) {
+	mock, sess := test.SetupMock(t)
+	_ = mock
+	ctx := testCtx(t)
+
+	drive, err := tape.Open(ctx, sess, 0)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+
+	// At BOT: BOP=true, BlockNumber=0.
+	pos, err := drive.Position(ctx)
+	if err != nil {
+		t.Fatalf("Position at BOT: %v", err)
+	}
+	if !pos.BOP {
+		t.Error("expected BOP=true at BOT")
+	}
+	if pos.BlockNumber != 0 {
+		t.Errorf("BlockNumber at BOT = %d, want 0", pos.BlockNumber)
+	}
+
+	// Write data to advance position.
+	if err := drive.Write(ctx, make([]byte, 4096)); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+
+	pos, err = drive.Position(ctx)
+	if err != nil {
+		t.Fatalf("Position after write: %v", err)
+	}
+	if pos.BOP {
+		t.Error("BOP should be false after write")
+	}
+	if pos.BlockNumber == 0 {
+		t.Error("BlockNumber should be non-zero after write")
+	}
+
+	// Rewind and check again.
+	if err := drive.Rewind(ctx); err != nil {
+		t.Fatalf("Rewind: %v", err)
+	}
+
+	pos, err = drive.Position(ctx)
+	if err != nil {
+		t.Fatalf("Position after rewind: %v", err)
+	}
+	if !pos.BOP {
+		t.Error("expected BOP=true after rewind")
+	}
+	if pos.BlockNumber != 0 {
+		t.Errorf("BlockNumber after rewind = %d, want 0", pos.BlockNumber)
+	}
+}
+
 func TestReadBufferTooSmall(t *testing.T) {
 	mock, sess := test.SetupMock(t)
 	_ = mock

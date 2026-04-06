@@ -147,6 +147,35 @@ func (d *Drive) WriteFilemarks(ctx context.Context, count uint32) error {
 	return nil
 }
 
+// Position returns the current logical block position on tape.
+// Uses READ POSITION (short form, SSC-3 Section 7.7).
+func (d *Drive) Position(ctx context.Context) (*Position, error) {
+	log := d.log()
+	log.Debug("tape: read position")
+
+	cdb := ssc.ReadPositionCDB()
+	result, err := d.session.Execute(ctx, d.lun, cdb, uiscsi.WithDataIn(20))
+	if err != nil {
+		return nil, fmt.Errorf("tape: read position: %w", err)
+	}
+
+	if senseErr := interpretSense(result.Status, result.SenseData); senseErr != nil {
+		return nil, fmt.Errorf("tape: read position: %w", senseErr)
+	}
+
+	pos, err := ssc.ParseReadPosition(result.Data)
+	if err != nil {
+		return nil, fmt.Errorf("tape: %w", err)
+	}
+
+	log.Debug("tape: position", "block", pos.BlockNumber, "bop", pos.BOP, "eop", pos.EOP)
+	return &Position{
+		BOP:         pos.BOP,
+		EOP:         pos.EOP,
+		BlockNumber: pos.BlockNumber,
+	}, nil
+}
+
 // Rewind repositions the tape to the beginning of the first partition.
 // The call blocks until the rewind completes; use ctx for timeout control.
 func (d *Drive) Rewind(ctx context.Context) error {

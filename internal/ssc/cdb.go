@@ -56,6 +56,15 @@ func WriteFilemarksCDB(count uint32) []byte {
 	return cdb
 }
 
+// ReadPositionCDB returns a READ POSITION CDB (opcode 0x34, 10 bytes).
+// Uses service action 0x00 (short form), which returns a 20-byte response
+// containing the current logical block position. SSC-3 Section 7.7.
+func ReadPositionCDB() []byte {
+	cdb := make([]byte, 10)
+	cdb[0] = 0x34
+	return cdb
+}
+
 // RewindCDB returns a REWIND CDB (opcode 0x01, 6 bytes).
 // If immed is true, the IMMED bit (byte 1 bit 0) is set for immediate return.
 // SSC-3 Section 7.5.

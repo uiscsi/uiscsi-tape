@@ -114,3 +114,17 @@ func TestRewindCDB(t *testing.T) {
 		})
 	}
 }
+
+func TestReadPositionCDB(t *testing.T) {
+	cdb := ReadPositionCDB()
+	if len(cdb) != 10 {
+		t.Fatalf("ReadPositionCDB() length = %d, want 10", len(cdb))
+	}
+	if cdb[0] != 0x34 {
+		t.Errorf("opcode = 0x%02X, want 0x34", cdb[0])
+	}
+	// Service action 0x00 (short form) — byte 1 bits 4-0 should be 0.
+	if cdb[1]&0x1F != 0 {
+		t.Errorf("service action = 0x%02X, want 0x00", cdb[1]&0x1F)
+	}
+}

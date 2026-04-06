@@ -57,7 +57,7 @@ fmt.Printf("Read %d bytes: %s\n", n, buf[:n])
 
 - **Drive probing** -- TEST UNIT READY + INQUIRY (device type 0x01 check) + READ BLOCK LIMITS
 - **Record I/O** -- `Read` and `Write` for record-oriented tape access
-- **Tape control** -- `WriteFilemarks` for logical record separation, `Rewind` for repositioning
+- **Tape control** -- `WriteFilemarks` for logical record separation, `Rewind` for repositioning, `Position` for block position query
 - **Variable-block mode** -- default, each record can be a different size
 - **Fixed-block mode** -- via `WithBlockSize(n)`, reads/writes in fixed-size blocks
 - **SILI support** -- via `WithSILI(true)`, suppresses ILI on short reads
@@ -75,6 +75,7 @@ fmt.Printf("Read %d bytes: %s\n", n, buf[:n])
 | `Drive.Write` | Write one record at current position |
 | `Drive.WriteFilemarks` | Write N filemarks at current position |
 | `Drive.Rewind` | Reposition to beginning of tape |
+| `Drive.Position` | Query current logical block number (READ POSITION) |
 | `Drive.Info` | Drive identification from INQUIRY |
 | `Drive.Limits` | Block size limits from READ BLOCK LIMITS |
 | `WithBlockSize` | Configure fixed-block mode (0 = variable, default) |

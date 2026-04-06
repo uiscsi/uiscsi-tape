@@ -251,6 +251,8 @@ func (m *MockTapeDrive) handleSCSICommand(conn net.Conn, bhs [48]byte, data []by
 		m.handleWriteFilemarks(conn, itt, cmdSN, statSN, cdb)
 	case 0x01: // REWIND
 		m.handleRewind(conn, itt, cmdSN, statSN)
+	case 0x34: // READ POSITION
+		m.handleReadPosition(conn, itt, cmdSN, statSN)
 	default:
 		// Unknown CDB -- send CHECK CONDITION with ILLEGAL REQUEST
 		sendSCSIResponse(conn, itt, cmdSN, statSN, 0x02, nil) // CHECK CONDITION
@@ -452,6 +454,23 @@ func (m *MockTapeDrive) handleRewind(conn net.Conn, itt, cmdSN uint32, statSN *u
 	m.mu.Unlock()
 
 	sendSCSIResponse(conn, itt, cmdSN, statSN, 0x00, nil) // GOOD
+}
+
+// handleReadPosition processes a READ POSITION (short form) command.
+// Returns a 20-byte response with BOP flag and current block position.
+func (m *MockTapeDrive) handleReadPosition(conn net.Conn, itt, cmdSN uint32, statSN *uint32) {
+	m.mu.Lock()
+	pos := m.position
+	m.mu.Unlock()
+
+	resp := make([]byte, 20)
+	if pos == 0 {
+		resp[0] = 0x80 // BOP=1
+	}
+	// First block location at bytes 4-7 (big-endian uint32).
+	binary.BigEndian.PutUint32(resp[4:8], uint32(pos))
+
+	sendDataIn(conn, itt, cmdSN, statSN, resp, 0x00)
 }
 
 // makeFixedSense builds an 18-byte fixed-format sense data block.

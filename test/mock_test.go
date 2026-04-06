@@ -258,3 +258,62 @@ func TestMockEOM(t *testing.T) {
 		t.Errorf("Written = %d, want %d", mock.Written(), len(data))
 	}
 }
+
+func TestMockReadPosition(t *testing.T) {
+	_, sess := SetupMock(t)
+	ctx := context.Background()
+
+	// Position at BOT should be 0 with BOP=true.
+	result, err := sess.Execute(ctx, 0, []byte{0x34, 0, 0, 0, 0, 0, 0, 0, 0, 0}, uiscsi.WithDataIn(20))
+	if err != nil {
+		t.Fatalf("Execute READ POSITION: %v", err)
+	}
+	if result.Status != 0 {
+		t.Fatalf("Status = 0x%02X, want 0x00", result.Status)
+	}
+	if len(result.Data) < 20 {
+		t.Fatalf("response length = %d, want >= 20", len(result.Data))
+	}
+	if result.Data[0]&0x80 == 0 {
+		t.Error("BOP should be set at position 0")
+	}
+
+	// Write some data to advance position.
+	data := make([]byte, 4096)
+	cdb := []byte{0x0A, 0x00, 0x00, 0x10, 0x00, 0x00} // WRITE(6), 4096 bytes
+	_, err = sess.Execute(ctx, 0, cdb, uiscsi.WithDataOut(bytes.NewReader(data), 4096))
+	if err != nil {
+		t.Fatalf("Execute WRITE: %v", err)
+	}
+
+	// Position should be non-zero now.
+	result, err = sess.Execute(ctx, 0, []byte{0x34, 0, 0, 0, 0, 0, 0, 0, 0, 0}, uiscsi.WithDataIn(20))
+	if err != nil {
+		t.Fatalf("Execute READ POSITION after write: %v", err)
+	}
+	pos := uint32(result.Data[4])<<24 | uint32(result.Data[5])<<16 | uint32(result.Data[6])<<8 | uint32(result.Data[7])
+	if pos == 0 {
+		t.Error("position should be non-zero after write")
+	}
+	if result.Data[0]&0x80 != 0 {
+		t.Error("BOP should not be set after write")
+	}
+
+	// Rewind and check position again.
+	_, err = sess.Execute(ctx, 0, []byte{0x01, 0, 0, 0, 0, 0})
+	if err != nil {
+		t.Fatalf("Execute REWIND: %v", err)
+	}
+
+	result, err = sess.Execute(ctx, 0, []byte{0x34, 0, 0, 0, 0, 0, 0, 0, 0, 0}, uiscsi.WithDataIn(20))
+	if err != nil {
+		t.Fatalf("Execute READ POSITION after rewind: %v", err)
+	}
+	pos = uint32(result.Data[4])<<24 | uint32(result.Data[5])<<16 | uint32(result.Data[6])<<8 | uint32(result.Data[7])
+	if pos != 0 {
+		t.Errorf("position after rewind = %d, want 0", pos)
+	}
+	if result.Data[0]&0x80 == 0 {
+		t.Error("BOP should be set after rewind")
+	}
+}

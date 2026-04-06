@@ -56,3 +56,85 @@ func TestParseReadBlockLimits(t *testing.T) {
 		})
 	}
 }
+
+func TestParseReadPosition(t *testing.T) {
+	tests := []struct {
+		name      string
+		data      []byte
+		wantBOP   bool
+		wantEOP   bool
+		wantBlock uint32
+		wantErr   bool
+	}{
+		{
+			name: "at BOT",
+			data: func() []byte {
+				d := make([]byte, 20)
+				d[0] = 0x80 // BOP=1
+				return d
+			}(),
+			wantBOP:   true,
+			wantBlock: 0,
+		},
+		{
+			name: "at position 1000",
+			data: func() []byte {
+				d := make([]byte, 20)
+				d[4] = 0x00
+				d[5] = 0x00
+				d[6] = 0x03
+				d[7] = 0xE8 // 1000
+				return d
+			}(),
+			wantBlock: 1000,
+		},
+		{
+			name: "EOP set",
+			data: func() []byte {
+				d := make([]byte, 20)
+				d[0] = 0x40 // EOP=1
+				return d
+			}(),
+			wantEOP: true,
+		},
+		{
+			name: "BOP and EOP both set",
+			data: func() []byte {
+				d := make([]byte, 20)
+				d[0] = 0xC0
+				return d
+			}(),
+			wantBOP: true,
+			wantEOP: true,
+		},
+		{
+			name:    "too short",
+			data:    make([]byte, 19),
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pos, err := ParseReadPosition(tt.data)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if pos.BOP != tt.wantBOP {
+				t.Errorf("BOP = %v, want %v", pos.BOP, tt.wantBOP)
+			}
+			if pos.EOP != tt.wantEOP {
+				t.Errorf("EOP = %v, want %v", pos.EOP, tt.wantEOP)
+			}
+			if pos.BlockNumber != tt.wantBlock {
+				t.Errorf("BlockNumber = %d, want %d", pos.BlockNumber, tt.wantBlock)
+			}
+		})
+	}
+}
