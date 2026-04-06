@@ -2,6 +2,7 @@ package tape
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 )
 
@@ -52,13 +53,17 @@ func (e *TapeError) Error() string {
 	if e.BlankCheck {
 		parts = append(parts, "blank check")
 	}
+
+	// Always include sense key and ASC/ASCQ for diagnostics.
+	sense := fmt.Sprintf("sense=0x%02X asc=0x%02X/0x%02X", e.SenseKey, e.ASC, e.ASCQ)
+
 	if len(parts) == 0 {
 		if e.Cause != nil {
 			return "tape: " + e.Cause.Error()
 		}
-		return "tape: error"
+		return "tape: CHECK CONDITION (" + sense + ")"
 	}
-	return "tape: " + strings.Join(parts, ", ")
+	return "tape: " + strings.Join(parts, ", ") + " (" + sense + ")"
 }
 
 // Unwrap returns the underlying cause error.
