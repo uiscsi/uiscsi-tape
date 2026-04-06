@@ -30,6 +30,60 @@ func ParseReadPosition(data []byte) (*Position, error) {
 	}, nil
 }
 
+// BlockDescriptor holds the tape mode parameter block descriptor.
+type BlockDescriptor struct {
+	DensityCode uint8
+	BlockLength uint32 // 0 = variable-block, >0 = fixed-block size in bytes
+}
+
+// ParseModeParameterHeader6 parses a MODE SENSE(6) response and extracts
+// the block descriptor. The response layout per SPC-4 Section 7.4.3:
+//
+//	Byte 0:    Mode Data Length
+//	Byte 1:    Medium Type
+//	Byte 2:    Device-Specific Parameter
+//	Byte 3:    Block Descriptor Length (8 for tape)
+//	Bytes 4-11: Block Descriptor
+//	  Byte 4:    Density Code
+//	  Bytes 5-7: Number of Blocks (3 bytes, usually 0 for tape)
+//	  Byte 8:    Reserved
+//	  Bytes 9-11: Block Length (3 bytes big-endian)
+func ParseModeParameterHeader6(data []byte) (*BlockDescriptor, error) {
+	if len(data) < 4 {
+		return nil, fmt.Errorf("ssc: MODE SENSE(6) response too short (%d bytes, need >= 4)", len(data))
+	}
+	bdLen := data[3]
+	if bdLen == 0 {
+		// No block descriptor present (DBD was set, or drive returned none).
+		return &BlockDescriptor{}, nil
+	}
+	if len(data) < 4+int(bdLen) || bdLen < 8 {
+		return nil, fmt.Errorf("ssc: MODE SENSE(6) block descriptor too short (bdLen=%d, data=%d)", bdLen, len(data))
+	}
+	bd := &BlockDescriptor{
+		DensityCode: data[4],
+		BlockLength: uint32(data[9])<<16 | uint32(data[10])<<8 | uint32(data[11]),
+	}
+	return bd, nil
+}
+
+// BuildModeSelectData6 builds the data-out payload for MODE SELECT(6)
+// to set the tape block size. Returns a 12-byte payload: 4-byte mode
+// parameter header + 8-byte block descriptor.
+func BuildModeSelectData6(blockLength uint32) []byte {
+	data := make([]byte, 12)
+	// Bytes 0-2: reserved (0)
+	data[3] = 8 // Block Descriptor Length
+	// Byte 4: Density Code (0 = default)
+	// Bytes 5-7: Number of Blocks (0 = all remaining)
+	// Byte 8: Reserved
+	// Bytes 9-11: Block Length (3 bytes big-endian)
+	data[9] = byte(blockLength >> 16)
+	data[10] = byte(blockLength >> 8)
+	data[11] = byte(blockLength)
+	return data
+}
+
 // ParseReadBlockLimits parses a 6-byte READ BLOCK LIMITS response.
 // Max block length is 3 bytes big-endian (bytes 1-3), min block length is 2 bytes big-endian (bytes 4-5).
 func ParseReadBlockLimits(data []byte) (*BlockLimits, error) {

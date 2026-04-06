@@ -115,6 +115,38 @@ func TestRewindCDB(t *testing.T) {
 	}
 }
 
+func TestModeSense6CDB(t *testing.T) {
+	cdb := ModeSense6CDB(255)
+	if len(cdb) != 6 {
+		t.Fatalf("length = %d, want 6", len(cdb))
+	}
+	if cdb[0] != 0x1A {
+		t.Errorf("opcode = 0x%02X, want 0x1A", cdb[0])
+	}
+	if cdb[1] != 0x00 {
+		t.Errorf("DBD byte = 0x%02X, want 0x00 (DBD=0)", cdb[1])
+	}
+	if cdb[4] != 255 {
+		t.Errorf("allocLen = %d, want 255", cdb[4])
+	}
+}
+
+func TestModeSelect6CDB(t *testing.T) {
+	cdb := ModeSelect6CDB(12)
+	if len(cdb) != 6 {
+		t.Fatalf("length = %d, want 6", len(cdb))
+	}
+	if cdb[0] != 0x15 {
+		t.Errorf("opcode = 0x%02X, want 0x15", cdb[0])
+	}
+	if cdb[1]&0x10 == 0 {
+		t.Error("PF bit (byte 1 bit 4) should be set")
+	}
+	if cdb[4] != 12 {
+		t.Errorf("paramLen = %d, want 12", cdb[4])
+	}
+}
+
 func TestReadPositionCDB(t *testing.T) {
 	cdb := ReadPositionCDB()
 	if len(cdb) != 10 {

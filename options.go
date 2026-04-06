@@ -20,8 +20,9 @@ func WithLogger(l *slog.Logger) Option {
 
 // WithBlockSize sets the fixed block size for tape I/O.
 // A value of 0 selects variable-block mode; any positive value selects
-// fixed-block mode with that block size in bytes. Validation against the
-// drive's BlockLimits is deferred to Open.
+// fixed-block mode with that block size in bytes. When set, [Open]
+// configures the drive via MODE SELECT and validates against the drive's
+// [BlockLimits].
 func WithBlockSize(n uint32) Option {
 	return func(c *driveConfig) {
 		c.blockSize = n

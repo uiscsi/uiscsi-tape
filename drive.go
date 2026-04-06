@@ -146,11 +146,27 @@ func Open(ctx context.Context, session *uiscsi.Session, lun uint64, opts ...Opti
 		"granularity", limits.Granularity,
 	)
 
-	return &Drive{
+	d := &Drive{
 		session: session,
 		lun:     lun,
 		info:    info,
 		limits:  limits,
 		cfg:     cfg,
-	}, nil
+	}
+
+	// Step 4: Configure block size if requested.
+	if cfg.blockSize > 0 {
+		if cfg.blockSize > limits.MaxBlock {
+			return nil, fmt.Errorf("tape: requested block size %d exceeds drive maximum %d", cfg.blockSize, limits.MaxBlock)
+		}
+		if cfg.blockSize < uint32(limits.MinBlock) {
+			return nil, fmt.Errorf("tape: requested block size %d below drive minimum %d", cfg.blockSize, limits.MinBlock)
+		}
+		log.Debug("tape: probe step 4 -- MODE SELECT (set block size)", "blockSize", cfg.blockSize)
+		if err := d.SetBlockSize(ctx, cfg.blockSize); err != nil {
+			return nil, fmt.Errorf("tape: set block size: %w", err)
+		}
+	}
+
+	return d, nil
 }

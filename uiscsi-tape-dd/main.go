@@ -39,7 +39,8 @@ func main() {
 	initiatorName := flag.String("initiator-name", "", "initiator IQN (optional)")
 	inputFile := flag.String("if", "", "input file (- for stdin); tape is the output")
 	outputFile := flag.String("of", "", "output file (- for stdout); tape is the input")
-	bs := flag.Uint("bs", 0, "block size in bytes (0 = variable block mode)")
+	bs := flag.Uint("bs", 65536, "I/O buffer size in bytes (default 65536)")
+	fixed := flag.Bool("fixed", false, "enable fixed-block mode (requires -bs; configures drive via MODE SELECT)")
 	count := flag.Uint64("count", 0, "number of records to transfer (0 = until EOF/filemark)")
 	seek := flag.Uint64("seek", 0, "skip N records on tape before writing")
 	skip := flag.Uint64("skip", 0, "skip N records on tape before reading")
@@ -90,7 +91,11 @@ func main() {
 	// Open tape drive.
 	var tapeOpts []tape.Option
 	tapeOpts = append(tapeOpts, tape.WithLogger(logger))
-	if *bs > 0 {
+	if *fixed {
+		if *bs == 0 {
+			fmt.Fprintf(os.Stderr, "error: -fixed requires -bs to specify block size\n")
+			os.Exit(1)
+		}
 		tapeOpts = append(tapeOpts, tape.WithBlockSize(uint32(*bs)))
 	}
 	if *sili {

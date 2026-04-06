@@ -10,8 +10,6 @@ import (
 	tape "github.com/rkujawa/uiscsi-tape"
 )
 
-const defaultVarBufSize = 65536 // 64KB default for variable-block reads/writes
-
 type stats struct {
 	records uint64
 	bytes   uint64
@@ -35,11 +33,7 @@ func writeToTape(ctx context.Context, drive *tape.Drive, inputPath string, bs ui
 
 	// Seek: advance tape position by reading and discarding records.
 	if seek > 0 {
-		bufSize := int(bs)
-		if bufSize == 0 {
-			bufSize = defaultVarBufSize
-		}
-		if err := skipRecords(ctx, drive, seek, bufSize); err != nil {
+		if err := skipRecords(ctx, drive, seek, int(bs)); err != nil {
 			return st, fmt.Errorf("seek: %w", err)
 		}
 	}
@@ -57,12 +51,7 @@ func writeToTape(ctx context.Context, drive *tape.Drive, inputPath string, bs ui
 		input = f
 	}
 
-	// Determine record size.
-	recSize := int(bs)
-	if recSize == 0 {
-		recSize = defaultVarBufSize
-	}
-	buf := make([]byte, recSize)
+	buf := make([]byte, bs)
 
 	for {
 		// Check context before each record.
@@ -113,11 +102,7 @@ func readFromTape(ctx context.Context, drive *tape.Drive, outputPath string, bs 
 
 	// Skip: advance tape position by reading and discarding records.
 	if skip > 0 {
-		bufSize := int(bs)
-		if bufSize == 0 {
-			bufSize = defaultVarBufSize
-		}
-		if err := skipRecords(ctx, drive, skip, bufSize); err != nil {
+		if err := skipRecords(ctx, drive, skip, int(bs)); err != nil {
 			return st, fmt.Errorf("skip: %w", err)
 		}
 	}
@@ -135,12 +120,7 @@ func readFromTape(ctx context.Context, drive *tape.Drive, outputPath string, bs 
 		output = f
 	}
 
-	// Determine buffer size.
-	bufSize := int(bs)
-	if bufSize == 0 {
-		bufSize = defaultVarBufSize
-	}
-	buf := make([]byte, bufSize)
+	buf := make([]byte, bs)
 
 	for {
 		if ctx.Err() != nil {
@@ -157,16 +137,16 @@ func readFromTape(ctx context.Context, drive *tape.Drive, outputPath string, bs 
 			}
 			if errors.Is(readErr, tape.ErrILI) {
 				// ILI: record size on tape differs from buffer size.
-				if n < bufSize {
+				if n < int(bs) {
 					// Record shorter than buffer — data is complete.
 					fmt.Fprintf(os.Stderr, "warning: record %d: short record (%d bytes, buffer %d); use -sili to suppress\n",
-						st.records+1, n, bufSize)
+						st.records+1, n, bs)
 				} else {
 					// Record larger than buffer — DATA TRUNCATED.
 					// The excess is lost; tape position advanced past
 					// the entire record.
 					fmt.Fprintf(os.Stderr, "WARNING: record %d: TRUNCATED (record on tape exceeds %d byte buffer); increase -bs\n",
-						st.records+1, bufSize)
+						st.records+1, bs)
 				}
 				// Fall through to write whatever data we got.
 			} else {

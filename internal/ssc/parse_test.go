@@ -57,6 +57,98 @@ func TestParseReadBlockLimits(t *testing.T) {
 	}
 }
 
+func TestParseModeParameterHeader6(t *testing.T) {
+	tests := []struct {
+		name      string
+		data      []byte
+		wantBlock uint32
+		wantErr   bool
+	}{
+		{
+			name: "variable block (0)",
+			data: []byte{
+				11,   // mode data length
+				0x00, // medium type
+				0x00, // device-specific
+				8,    // block descriptor length
+				0x00, // density code
+				0, 0, 0, // number of blocks
+				0,       // reserved
+				0, 0, 0, // block length = 0 (variable)
+			},
+			wantBlock: 0,
+		},
+		{
+			name: "fixed 65536",
+			data: []byte{
+				11, 0x00, 0x00, 8,
+				0x00, 0, 0, 0, 0,
+				0x01, 0x00, 0x00, // block length = 65536
+			},
+			wantBlock: 65536,
+		},
+		{
+			name: "fixed 512",
+			data: []byte{
+				11, 0x00, 0x00, 8,
+				0x00, 0, 0, 0, 0,
+				0x00, 0x02, 0x00, // block length = 512
+			},
+			wantBlock: 512,
+		},
+		{
+			name: "no block descriptor (bdLen=0)",
+			data: []byte{3, 0x00, 0x00, 0},
+			wantBlock: 0,
+		},
+		{
+			name:    "too short",
+			data:    []byte{0, 0},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			bd, err := ParseModeParameterHeader6(tt.data)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if bd.BlockLength != tt.wantBlock {
+				t.Errorf("BlockLength = %d, want %d", bd.BlockLength, tt.wantBlock)
+			}
+		})
+	}
+}
+
+func TestBuildModeSelectData6(t *testing.T) {
+	data := BuildModeSelectData6(65536)
+	if len(data) != 12 {
+		t.Fatalf("length = %d, want 12", len(data))
+	}
+	if data[3] != 8 {
+		t.Errorf("block descriptor length = %d, want 8", data[3])
+	}
+	// Block length at bytes 9-11
+	bl := uint32(data[9])<<16 | uint32(data[10])<<8 | uint32(data[11])
+	if bl != 65536 {
+		t.Errorf("block length = %d, want 65536", bl)
+	}
+
+	// Variable mode
+	data0 := BuildModeSelectData6(0)
+	bl0 := uint32(data0[9])<<16 | uint32(data0[10])<<8 | uint32(data0[11])
+	if bl0 != 0 {
+		t.Errorf("variable block length = %d, want 0", bl0)
+	}
+}
+
 func TestParseReadPosition(t *testing.T) {
 	tests := []struct {
 		name      string

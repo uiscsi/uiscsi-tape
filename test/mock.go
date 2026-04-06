@@ -30,6 +30,7 @@ type MockTapeDrive struct {
 	filemarks    []int  // positions where filemarks exist
 	deviceType   uint8  // INQUIRY device type (default 0x01 = tape)
 	eomThreshold int    // position at which EOM early warning triggers
+	blockSize    int    // configured block size (0 = variable, >0 = fixed); set by MODE SELECT
 
 	listener net.Listener
 	addr     string
@@ -253,6 +254,10 @@ func (m *MockTapeDrive) handleSCSICommand(conn net.Conn, bhs [48]byte, data []by
 		m.handleRewind(conn, itt, cmdSN, statSN)
 	case 0x34: // READ POSITION
 		m.handleReadPosition(conn, itt, cmdSN, statSN)
+	case 0x1A: // MODE SENSE(6)
+		m.handleModeSense6(conn, itt, cmdSN, statSN)
+	case 0x15: // MODE SELECT(6)
+		m.handleModeSelect6(conn, itt, cmdSN, statSN, data)
 	default:
 		// Unknown CDB -- send CHECK CONDITION with ILLEGAL REQUEST
 		sendSCSIResponse(conn, itt, cmdSN, statSN, 0x02, nil) // CHECK CONDITION
@@ -353,7 +358,11 @@ func (m *MockTapeDrive) handleWrite(conn net.Conn, itt, cmdSN uint32, statSN *ui
 	xferLen := uint32(cdb[2])<<16 | uint32(cdb[3])<<8 | uint32(cdb[4])
 	fixed := cdb[1]&0x01 != 0
 	if fixed {
-		xferLen *= 512 // mock block size
+		bs := m.blockSize
+		if bs == 0 {
+			bs = 512 // fallback
+		}
+		xferLen *= uint32(bs)
 	}
 
 	writeLen := int(xferLen)
@@ -395,7 +404,11 @@ func (m *MockTapeDrive) handleRead(conn net.Conn, itt, cmdSN uint32, statSN *uin
 	xferLen := uint32(cdb[2])<<16 | uint32(cdb[3])<<8 | uint32(cdb[4])
 	fixed := cdb[1]&0x01 != 0
 	if fixed {
-		xferLen *= 512
+		bs := m.blockSize
+		if bs == 0 {
+			bs = 512 // fallback
+		}
+		xferLen *= uint32(bs)
 	}
 
 	m.mu.Lock()
@@ -471,6 +484,51 @@ func (m *MockTapeDrive) handleReadPosition(conn net.Conn, itt, cmdSN uint32, sta
 	binary.BigEndian.PutUint32(resp[4:8], uint32(pos))
 
 	sendDataIn(conn, itt, cmdSN, statSN, resp, 0x00)
+}
+
+// handleModeSense6 processes a MODE SENSE(6) command.
+// Returns a 12-byte response: 4-byte header + 8-byte block descriptor
+// reflecting the current configured block size.
+func (m *MockTapeDrive) handleModeSense6(conn net.Conn, itt, cmdSN uint32, statSN *uint32) {
+	m.mu.Lock()
+	bs := m.blockSize
+	m.mu.Unlock()
+
+	resp := make([]byte, 12)
+	resp[0] = 11   // Mode Data Length (12 - 1)
+	resp[3] = 8    // Block Descriptor Length
+	// Byte 4: density code (0 = default)
+	// Bytes 5-7: number of blocks (0)
+	// Byte 8: reserved
+	// Bytes 9-11: block length
+	resp[9] = byte(bs >> 16)
+	resp[10] = byte(bs >> 8)
+	resp[11] = byte(bs)
+
+	sendDataIn(conn, itt, cmdSN, statSN, resp, 0x00)
+}
+
+// handleModeSelect6 processes a MODE SELECT(6) command.
+// Extracts the block length from the block descriptor and stores it.
+func (m *MockTapeDrive) handleModeSelect6(conn net.Conn, itt, cmdSN uint32, statSN *uint32, data []byte) {
+	if len(data) < 12 {
+		sendSCSIResponse(conn, itt, cmdSN, statSN, 0x02, nil) // CHECK CONDITION
+		return
+	}
+
+	bdLen := data[3]
+	if bdLen < 8 {
+		sendSCSIResponse(conn, itt, cmdSN, statSN, 0x02, nil)
+		return
+	}
+
+	blockLength := int(data[9])<<16 | int(data[10])<<8 | int(data[11])
+
+	m.mu.Lock()
+	m.blockSize = blockLength
+	m.mu.Unlock()
+
+	sendSCSIResponse(conn, itt, cmdSN, statSN, 0x00, nil) // GOOD
 }
 
 // makeFixedSense builds an 18-byte fixed-format sense data block.

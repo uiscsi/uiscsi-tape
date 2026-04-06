@@ -59,7 +59,7 @@ fmt.Printf("Read %d bytes: %s\n", n, buf[:n])
 - **Record I/O** -- `Read` and `Write` for record-oriented tape access
 - **Tape control** -- `WriteFilemarks` for logical record separation, `Rewind` for repositioning, `Position` for block position query
 - **Variable-block mode** -- default, each record can be a different size
-- **Fixed-block mode** -- via `WithBlockSize(n)`, reads/writes in fixed-size blocks
+- **Fixed-block mode** -- via `WithBlockSize(n)`, configures drive via MODE SELECT and reads/writes in fixed-size blocks
 - **SILI support** -- via `WithSILI(true)`, suppresses ILI on short reads
 - **Bounded-memory streaming** -- Read uses `uiscsi.StreamExecute` (~64KB peak memory regardless of block size)
 - **Tape-specific errors** -- `TapeError` with Filemark, EOM, ILI, BlankCheck condition flags
@@ -76,6 +76,8 @@ fmt.Printf("Read %d bytes: %s\n", n, buf[:n])
 | `Drive.WriteFilemarks` | Write N filemarks at current position |
 | `Drive.Rewind` | Reposition to beginning of tape |
 | `Drive.Position` | Query current logical block number (READ POSITION) |
+| `Drive.BlockSize` | Query drive's current block size (MODE SENSE) |
+| `Drive.SetBlockSize` | Set drive's block size (MODE SELECT) |
 | `Drive.Info` | Drive identification from INQUIRY |
 | `Drive.Limits` | Block size limits from READ BLOCK LIMITS |
 | `WithBlockSize` | Configure fixed-block mode (0 = variable, default) |

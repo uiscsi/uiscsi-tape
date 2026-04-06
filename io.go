@@ -147,6 +147,59 @@ func (d *Drive) WriteFilemarks(ctx context.Context, count uint32) error {
 	return nil
 }
 
+// BlockSize queries the drive's current block size from the mode parameter
+// block descriptor via MODE SENSE(6). Returns 0 for variable-block mode,
+// >0 for fixed-block mode (block size in bytes).
+func (d *Drive) BlockSize(ctx context.Context) (uint32, error) {
+	log := d.log()
+	log.Debug("tape: mode sense (block size query)")
+
+	cdb := ssc.ModeSense6CDB(255)
+	result, err := d.session.Execute(ctx, d.lun, cdb, uiscsi.WithDataIn(255))
+	if err != nil {
+		return 0, fmt.Errorf("tape: mode sense: %w", err)
+	}
+
+	if senseErr := interpretSense(result.Status, result.SenseData); senseErr != nil {
+		return 0, fmt.Errorf("tape: mode sense: %w", senseErr)
+	}
+
+	bd, err := ssc.ParseModeParameterHeader6(result.Data)
+	if err != nil {
+		return 0, fmt.Errorf("tape: %w", err)
+	}
+
+	log.Debug("tape: current block size", "blockLength", bd.BlockLength)
+	return bd.BlockLength, nil
+}
+
+// SetBlockSize configures the drive's block size via MODE SELECT(6).
+// Set blockLength to 0 for variable-block mode, or >0 for fixed-block
+// mode with that size in bytes. This must be called before Read/Write
+// if fixed-block mode is desired; the drive will reject fixed-block
+// CDBs unless its block descriptor matches.
+func (d *Drive) SetBlockSize(ctx context.Context, blockLength uint32) error {
+	log := d.log()
+	log.Debug("tape: mode select (set block size)", "blockLength", blockLength)
+
+	cdb := ssc.ModeSelect6CDB(12)
+	payload := ssc.BuildModeSelectData6(blockLength)
+
+	result, err := d.session.Execute(ctx, d.lun, cdb,
+		uiscsi.WithDataOut(bytes.NewReader(payload), uint32(len(payload))),
+	)
+	if err != nil {
+		return fmt.Errorf("tape: mode select: %w", err)
+	}
+
+	if senseErr := interpretSense(result.Status, result.SenseData); senseErr != nil {
+		return fmt.Errorf("tape: mode select: %w", senseErr)
+	}
+
+	log.Debug("tape: block size configured", "blockLength", blockLength)
+	return nil
+}
+
 // Position returns the current logical block position on tape.
 // Uses READ POSITION (short form, SSC-3 Section 7.7).
 func (d *Drive) Position(ctx context.Context) (*Position, error) {

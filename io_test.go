@@ -313,6 +313,84 @@ func TestPosition(t *testing.T) {
 	}
 }
 
+func TestBlockSize(t *testing.T) {
+	mock, sess := test.SetupMock(t)
+	_ = mock
+	ctx := testCtx(t)
+
+	drive, err := tape.Open(ctx, sess, 0)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+
+	// Default block size should be 0 (variable).
+	bs, err := drive.BlockSize(ctx)
+	if err != nil {
+		t.Fatalf("BlockSize: %v", err)
+	}
+	if bs != 0 {
+		t.Errorf("default BlockSize = %d, want 0", bs)
+	}
+}
+
+func TestSetBlockSize(t *testing.T) {
+	mock, sess := test.SetupMock(t)
+	_ = mock
+	ctx := testCtx(t)
+
+	drive, err := tape.Open(ctx, sess, 0)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+
+	// Set to 65536.
+	if err := drive.SetBlockSize(ctx, 65536); err != nil {
+		t.Fatalf("SetBlockSize: %v", err)
+	}
+
+	// Query back.
+	bs, err := drive.BlockSize(ctx)
+	if err != nil {
+		t.Fatalf("BlockSize: %v", err)
+	}
+	if bs != 65536 {
+		t.Errorf("BlockSize = %d, want 65536", bs)
+	}
+
+	// Set back to variable.
+	if err := drive.SetBlockSize(ctx, 0); err != nil {
+		t.Fatalf("SetBlockSize(0): %v", err)
+	}
+	bs, err = drive.BlockSize(ctx)
+	if err != nil {
+		t.Fatalf("BlockSize: %v", err)
+	}
+	if bs != 0 {
+		t.Errorf("BlockSize = %d, want 0", bs)
+	}
+}
+
+func TestOpenWithBlockSize(t *testing.T) {
+	mock, sess := test.SetupMock(t)
+	_ = mock
+	ctx := testCtx(t)
+
+	// Open with WithBlockSize configures drive via MODE SELECT.
+	drive, err := tape.Open(ctx, sess, 0, tape.WithBlockSize(65536))
+	if err != nil {
+		t.Fatalf("Open with BlockSize: %v", err)
+	}
+
+	// Verify the drive was configured.
+	bs, err := drive.BlockSize(ctx)
+	if err != nil {
+		t.Fatalf("BlockSize: %v", err)
+	}
+	if bs != 65536 {
+		t.Errorf("BlockSize = %d, want 65536", bs)
+	}
+}
+
 func TestReadBufferTooSmall(t *testing.T) {
 	mock, sess := test.SetupMock(t)
 	_ = mock

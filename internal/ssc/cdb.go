@@ -65,6 +65,31 @@ func ReadPositionCDB() []byte {
 	return cdb
 }
 
+// ModeSense6CDB returns a MODE SENSE(6) CDB (opcode 0x1A, 6 bytes).
+// DBD=0 (include block descriptor), page code 0x00 (vendor-specific /
+// current values). allocLen sets the maximum response length.
+// SPC-4 Section 6.11.
+func ModeSense6CDB(allocLen uint8) []byte {
+	cdb := make([]byte, 6)
+	cdb[0] = 0x1A
+	// Byte 1: DBD=0 (bit 3), reserved
+	// Byte 2: page code 0x00 (current values, no specific page)
+	cdb[4] = allocLen
+	return cdb
+}
+
+// ModeSelect6CDB returns a MODE SELECT(6) CDB (opcode 0x15, 6 bytes).
+// PF=1 (page format bit, byte 1 bit 4). paramLen is the length of the
+// data-out parameter list (header + block descriptor).
+// SPC-4 Section 6.9.
+func ModeSelect6CDB(paramLen uint8) []byte {
+	cdb := make([]byte, 6)
+	cdb[0] = 0x15
+	cdb[1] = 0x10 // PF=1
+	cdb[4] = paramLen
+	return cdb
+}
+
 // RewindCDB returns a REWIND CDB (opcode 0x01, 6 bytes).
 // If immed is true, the IMMED bit (byte 1 bit 0) is set for immediate return.
 // SSC-3 Section 7.5.
