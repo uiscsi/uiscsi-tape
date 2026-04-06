@@ -155,7 +155,18 @@ func readFromTape(ctx context.Context, drive *tape.Drive, outputPath string, bs 
 			if errors.Is(readErr, tape.ErrBlankCheck) {
 				break // No more data on tape.
 			}
-			return st, fmt.Errorf("read tape: %w", readErr)
+			if errors.Is(readErr, tape.ErrILI) {
+				// ILI: record size on tape differs from requested size.
+				// Data in buf[:n] is valid but may be truncated if the
+				// record was larger than the buffer. Warn and continue —
+				// use -bs to match the tape's block size, or -sili to
+				// suppress this warning.
+				fmt.Fprintf(os.Stderr, "warning: record %d: incorrect length indicator (got %d bytes, requested %d); use -bs or -sili\n",
+					st.records+1, n, bufSize)
+				// Fall through to write whatever data we got.
+			} else {
+				return st, fmt.Errorf("read tape: %w", readErr)
+			}
 		}
 
 		if n > 0 {

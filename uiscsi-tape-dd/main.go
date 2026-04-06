@@ -43,6 +43,7 @@ func main() {
 	count := flag.Uint64("count", 0, "number of records to transfer (0 = until EOF/filemark)")
 	seek := flag.Uint64("seek", 0, "skip N records on tape before writing")
 	skip := flag.Uint64("skip", 0, "skip N records on tape before reading")
+	sili := flag.Bool("sili", false, "suppress incorrect length indicator on short reads")
 	verbose := flag.Bool("verbose", false, "enable debug logging")
 	flag.Parse()
 
@@ -91,6 +92,9 @@ func main() {
 	tapeOpts = append(tapeOpts, tape.WithLogger(logger))
 	if *bs > 0 {
 		tapeOpts = append(tapeOpts, tape.WithBlockSize(uint32(*bs)))
+	}
+	if *sili {
+		tapeOpts = append(tapeOpts, tape.WithSILI(true))
 	}
 
 	drive, err := tape.Open(ctx, sess, *lun, tapeOpts...)
