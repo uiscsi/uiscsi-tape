@@ -45,6 +45,7 @@ func main() {
 	seek := flag.Uint64("seek", 0, "skip N records on tape before writing")
 	skip := flag.Uint64("skip", 0, "skip N records on tape before reading")
 	sili := flag.Bool("sili", false, "suppress incorrect length indicator on short reads")
+	decompress := flag.Bool("decompress", false, "enable hardware decompression (for compressed tapes)")
 	verbose := flag.Bool("verbose", false, "enable debug logging")
 	flag.Parse()
 
@@ -108,6 +109,12 @@ func main() {
 		os.Exit(2)
 	}
 	fmt.Fprintf(os.Stderr, "%s %s (rev %s)\n", drive.Info().VendorID, drive.Info().ProductID, drive.Info().Revision)
+
+	if *decompress {
+		if err := drive.SetCompression(ctx, true, true); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: could not enable decompression: %v\n", err)
+		}
+	}
 
 	// Transfer.
 	var st stats

@@ -84,6 +84,62 @@ func BuildModeSelectData6(blockLength uint32) []byte {
 	return data
 }
 
+// CompressionConfig holds data compression settings from mode page 0x0F.
+type CompressionConfig struct {
+	DCE bool // Data Compression Enable (read/write)
+	DDE bool // Data Decompression Enable (read)
+}
+
+// ParseCompressionPage parses a MODE SENSE(6) response containing
+// the Data Compression mode page (0x0F). The response has a 4-byte
+// mode parameter header, an 8-byte block descriptor (if present),
+// then the mode page. SSC-3 Section 8.3.2.
+func ParseCompressionPage(data []byte) (*CompressionConfig, error) {
+	if len(data) < 4 {
+		return nil, fmt.Errorf("ssc: compression page response too short (%d bytes)", len(data))
+	}
+	// Skip header + block descriptor.
+	bdLen := int(data[3])
+	offset := 4 + bdLen
+	if offset+2 > len(data) {
+		return nil, fmt.Errorf("ssc: compression page not found (offset %d, data %d)", offset, len(data))
+	}
+	// Verify page code.
+	pageCode := data[offset] & 0x3F
+	if pageCode != 0x0F {
+		return nil, fmt.Errorf("ssc: expected compression page 0x0F, got 0x%02X", pageCode)
+	}
+	if offset+16 > len(data) {
+		return nil, fmt.Errorf("ssc: compression page truncated")
+	}
+	return &CompressionConfig{
+		DCE: data[offset+2]&0x80 != 0, // byte 2 bit 7
+		DDE: data[offset+2]&0x40 != 0, // byte 2 bit 6
+	}, nil
+}
+
+// BuildCompressionPage builds the data-out payload for MODE SELECT(6)
+// to set compression. Returns mode parameter header (4 bytes) +
+// block descriptor (8 bytes, zeros) + compression page (16 bytes).
+func BuildCompressionPage(dce, dde bool) []byte {
+	data := make([]byte, 28)
+	// Header.
+	data[3] = 8 // Block Descriptor Length
+	// Block descriptor: 8 bytes of zeros (don't change block size).
+	// Compression page at offset 12.
+	data[12] = 0x0F       // Page code
+	data[13] = 14         // Page length (14 bytes follow)
+	if dce {
+		data[14] |= 0x80 // DCE bit
+	}
+	if dde {
+		data[14] |= 0x40 // DDE bit
+	}
+	// Compression algorithm: 0x00 = default (let drive choose).
+	// Decompression algorithm: 0x00 = default.
+	return data
+}
+
 // ParseReadBlockLimits parses a 6-byte READ BLOCK LIMITS response.
 // Max block length is 3 bytes big-endian (bytes 1-3), min block length is 2 bytes big-endian (bytes 4-5).
 func ParseReadBlockLimits(data []byte) (*BlockLimits, error) {

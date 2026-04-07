@@ -200,6 +200,55 @@ func (d *Drive) SetBlockSize(ctx context.Context, blockLength uint32) error {
 	return nil
 }
 
+// Compression queries the drive's current data compression settings
+// via MODE SENSE(6) page 0x0F.
+func (d *Drive) Compression(ctx context.Context) (dce, dde bool, err error) {
+	log := d.log()
+	log.Debug("tape: mode sense (compression query)")
+
+	cdb := ssc.ModeSense6PageCDB(0x0F, 255)
+	result, err := d.session.Execute(ctx, d.lun, cdb, uiscsi.WithDataIn(255))
+	if err != nil {
+		return false, false, fmt.Errorf("tape: mode sense compression: %w", err)
+	}
+	if senseErr := interpretSense(result.Status, result.SenseData); senseErr != nil {
+		return false, false, fmt.Errorf("tape: mode sense compression: %w", senseErr)
+	}
+
+	cc, err := ssc.ParseCompressionPage(result.Data)
+	if err != nil {
+		return false, false, fmt.Errorf("tape: %w", err)
+	}
+
+	log.Debug("tape: compression", "dce", cc.DCE, "dde", cc.DDE)
+	return cc.DCE, cc.DDE, nil
+}
+
+// SetCompression configures data compression on the drive via
+// MODE SELECT(6) page 0x0F. Set dce=true to enable compression on
+// writes, dde=true to enable decompression on reads. Most drives
+// require DDE=true to read compressed tapes.
+func (d *Drive) SetCompression(ctx context.Context, dce, dde bool) error {
+	log := d.log()
+	log.Debug("tape: mode select (set compression)", "dce", dce, "dde", dde)
+
+	payload := ssc.BuildCompressionPage(dce, dde)
+	cdb := ssc.ModeSelect6CDB(uint8(len(payload)))
+
+	result, err := d.session.Execute(ctx, d.lun, cdb,
+		uiscsi.WithDataOut(bytes.NewReader(payload), uint32(len(payload))),
+	)
+	if err != nil {
+		return fmt.Errorf("tape: mode select compression: %w", err)
+	}
+	if senseErr := interpretSense(result.Status, result.SenseData); senseErr != nil {
+		return fmt.Errorf("tape: mode select compression: %w", senseErr)
+	}
+
+	log.Debug("tape: compression configured", "dce", dce, "dde", dde)
+	return nil
+}
+
 // Position returns the current logical block position on tape.
 // Uses READ POSITION (short form, SSC-3 Section 7.7).
 func (d *Drive) Position(ctx context.Context) (*Position, error) {

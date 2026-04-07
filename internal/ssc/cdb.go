@@ -90,6 +90,16 @@ func ModeSelect6CDB(paramLen uint8) []byte {
 	return cdb
 }
 
+// ModeSense6PageCDB returns a MODE SENSE(6) CDB for a specific page.
+// DBD=0 (include block descriptor). PC=0 (current values).
+func ModeSense6PageCDB(pageCode uint8, allocLen uint8) []byte {
+	cdb := make([]byte, 6)
+	cdb[0] = 0x1A
+	cdb[2] = pageCode & 0x3F // PC=0 (bits 7-6), page code (bits 5-0)
+	cdb[4] = allocLen
+	return cdb
+}
+
 // RewindCDB returns a REWIND CDB (opcode 0x01, 6 bytes).
 // If immed is true, the IMMED bit (byte 1 bit 0) is set for immediate return.
 // SSC-3 Section 7.5.
