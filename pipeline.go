@@ -19,25 +19,35 @@ type readResult struct {
 	err  error
 }
 
-// readPipeline pre-fetches the NEXT tape record while the caller
-// processes the current one. This overlaps one SCSI READ command
-// with data consumption, roughly doubling sequential throughput.
+// pendingRead holds a submitted but not-yet-consumed StreamExecute.
+type pendingRead struct {
+	sr  *uiscsi.StreamResult
+	buf []byte
+}
+
+// readPipeline pre-fetches tape records using 2-deep command pipelining.
+// Two SCSI READ commands are kept in flight simultaneously: while the
+// current response is being consumed, the next command's data is already
+// arriving over the network. This hides the network RTT (~5ms) and
+// roughly doubles remote throughput.
 //
-// Only one read is ever in flight — this avoids consuming records
-// past a filemark boundary (which would be discarded and lost).
+// On filemark: the second in-flight read consumes data from the next
+// file. This data is saved (not discarded) and delivered as the first
+// result when the pipeline restarts for the next file.
 type readPipeline struct {
 	results chan readResult
 	done    chan struct{}
 	cancel  context.CancelFunc
 	wg      sync.WaitGroup
 
-	session   *uiscsi.Session
-	lun       uint64
-	fixed     bool
-	sili      bool
-	blockSize uint32
-	bufSize   int
-	logger    *slog.Logger
+	session     *uiscsi.Session
+	lun         uint64
+	fixed       bool
+	sili        bool
+	blockSize   uint32
+	bufSize     int
+	logger      *slog.Logger
+	savedResult *readResult // orphaned post-filemark read for next file
 }
 
 func newReadPipeline(cfg pipelineConfig) *readPipeline {
@@ -123,54 +133,114 @@ func (p *readPipeline) run(ctx context.Context) {
 		allocLen = transferLen
 	}
 
-	for {
+	// Deliver saved result from previous file's orphaned read.
+	if p.savedResult != nil {
+		saved := *p.savedResult
+		p.savedResult = nil
 		select {
+		case p.results <- saved:
 		case <-ctx.Done():
 			return
-		default:
 		}
+		if saved.err != nil {
+			return
+		}
+	}
 
-		buf := make([]byte, allocLen)
-		n, err := p.readOneRecord(ctx, transferLen, allocLen, buf)
+	// Submit first read.
+	cur, err := p.submitRead(ctx, transferLen, allocLen)
+	if err != nil {
+		select {
+		case p.results <- readResult{err: err}:
+		case <-ctx.Done():
+		}
+		return
+	}
 
-		result := readResult{data: buf[:max(n, 0)], n: max(n, 0), err: err}
+	// Submit second read (look-ahead).
+	next, err := p.submitRead(ctx, transferLen, allocLen)
+	if err != nil {
+		// Can't submit look-ahead — consume single and stop.
+		n, consumeErr := p.consumeRead(ctx, cur)
+		result := readResult{data: cur.buf[:max(n, 0)], n: max(n, 0), err: consumeErr}
+		select {
+		case p.results <- result:
+		case <-ctx.Done():
+		}
+		return
+	}
+
+	for {
+		// Consume current (oldest) read.
+		n, consumeErr := p.consumeRead(ctx, cur)
+		result := readResult{data: cur.buf[:max(n, 0)], n: max(n, 0), err: consumeErr}
 
 		select {
 		case p.results <- result:
 		case <-ctx.Done():
+			p.drainPending(next)
 			return
 		}
 
+		if consumeErr != nil {
+			// Terminal condition (filemark, blank check, error).
+			// Save the look-ahead read for the next file.
+			savedN, savedErr := p.consumeRead(ctx, next)
+			if savedN > 0 || savedErr == nil {
+				p.savedResult = &readResult{
+					data: next.buf[:max(savedN, 0)],
+					n:    max(savedN, 0),
+					err:  savedErr,
+				}
+				p.logger.Debug("tape: pipeline saved orphaned read",
+					"n", savedN, "err", savedErr)
+			} else {
+				p.logger.Debug("tape: pipeline look-ahead also errored",
+					"err", savedErr)
+			}
+			return
+		}
+
+		// Rotate: current = next, submit new look-ahead.
+		cur = next
+		next, err = p.submitRead(ctx, transferLen, allocLen)
 		if err != nil {
+			// Can't submit replacement — consume remaining and stop.
+			n, consumeErr := p.consumeRead(ctx, cur)
+			result := readResult{data: cur.buf[:max(n, 0)], n: max(n, 0), err: consumeErr}
+			select {
+			case p.results <- result:
+			case <-ctx.Done():
+			}
 			return
 		}
 	}
 }
 
-// readOneRecord submits a StreamExecute, then immediately returns the
-// StreamResult handle. The actual data consumption happens next, while
-// the SCSI command for the FOLLOWING record can already be queued by
-// the session's command window.
-func (p *readPipeline) readOneRecord(ctx context.Context, transferLen, allocLen uint32, buf []byte) (int, error) {
+func (p *readPipeline) submitRead(ctx context.Context, transferLen, allocLen uint32) (pendingRead, error) {
 	cdb := ssc.ReadCDB(p.fixed, p.sili, transferLen)
+	buf := make([]byte, allocLen)
 
 	sr, err := p.session.Raw().StreamExecute(ctx, p.lun, cdb, uiscsi.WithDataIn(allocLen))
 	if err != nil {
-		return 0, err
+		return pendingRead{}, err
 	}
+	return pendingRead{sr: sr, buf: buf}, nil
+}
 
-	n, readErr := io.ReadFull(sr.Data, buf)
+func (p *readPipeline) consumeRead(ctx context.Context, pr pendingRead) (int, error) {
+	n, readErr := io.ReadFull(pr.sr.Data, pr.buf)
 	if readErr == io.ErrUnexpectedEOF || readErr == io.EOF {
 		readErr = nil
 	}
-	io.Copy(io.Discard, sr.Data)
+	io.Copy(io.Discard, pr.sr.Data)
 
 	if readErr != nil {
-		sr.Wait()
+		pr.sr.Wait()
 		return n, readErr
 	}
 
-	status, senseData, waitErr := sr.Wait()
+	status, senseData, waitErr := pr.sr.Wait()
 	if waitErr != nil {
 		return n, waitErr
 	}
@@ -181,4 +251,11 @@ func (p *readPipeline) readOneRecord(ctx context.Context, transferLen, allocLen 
 	}
 
 	return n, nil
+}
+
+func (p *readPipeline) drainPending(pr pendingRead) {
+	if pr.sr != nil && pr.sr.Data != nil {
+		io.Copy(io.Discard, pr.sr.Data)
+		pr.sr.Wait()
+	}
 }
