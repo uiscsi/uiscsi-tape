@@ -2,7 +2,6 @@ package tape
 
 import (
 	"context"
-	"errors"
 	"io"
 	"log/slog"
 	"sync"
@@ -11,26 +10,27 @@ import (
 	"github.com/rkujawa/uiscsi-tape/internal/ssc"
 )
 
-const defaultReadAheadBufSize = 262144 // 256KB per record for variable-block
+const defaultReadAheadBufSize = 262144
 
-// readResult carries one pre-fetched tape record through the pipeline.
+// readResult carries one pre-fetched tape record.
 type readResult struct {
-	data []byte // record data, owned by pipeline
-	n    int    // bytes of actual data in data
-	err  error  // nil on success, *TapeError for tape conditions
+	data []byte
+	n    int
+	err  error
 }
 
-// readPipeline pre-fetches tape records in a background goroutine.
-// It submits multiple SCSI READ commands via StreamExecute and buffers
-// the results for Drive.Read to consume, overlapping tape I/O with
-// data processing.
+// readPipeline pre-fetches the NEXT tape record while the caller
+// processes the current one. This overlaps one SCSI READ command
+// with data consumption, roughly doubling sequential throughput.
+//
+// Only one read is ever in flight — this avoids consuming records
+// past a filemark boundary (which would be discarded and lost).
 type readPipeline struct {
 	results chan readResult
 	done    chan struct{}
 	cancel  context.CancelFunc
 	wg      sync.WaitGroup
 
-	// Configuration (immutable after start).
 	session   *uiscsi.Session
 	lun       uint64
 	fixed     bool
@@ -40,7 +40,6 @@ type readPipeline struct {
 	logger    *slog.Logger
 }
 
-// newReadPipeline creates an unstarted pipeline.
 func newReadPipeline(cfg pipelineConfig) *readPipeline {
 	bufSize := cfg.bufSize
 	if bufSize <= 0 {
@@ -51,7 +50,7 @@ func newReadPipeline(cfg pipelineConfig) *readPipeline {
 		}
 	}
 	return &readPipeline{
-		results:   make(chan readResult, cfg.depth),
+		results:   make(chan readResult, 1),
 		done:      make(chan struct{}),
 		session:   cfg.session,
 		lun:       cfg.lun,
@@ -73,7 +72,6 @@ type pipelineConfig struct {
 	logger    *slog.Logger
 }
 
-// start launches the fetcher goroutine.
 func (p *readPipeline) start(ctx context.Context) {
 	pCtx, cancel := context.WithCancel(ctx)
 	p.cancel = cancel
@@ -81,13 +79,11 @@ func (p *readPipeline) start(ctx context.Context) {
 	go p.run(pCtx)
 }
 
-// stop cancels the fetcher, waits for it to exit, and drains buffered results.
 func (p *readPipeline) stop() {
 	if p.cancel != nil {
 		p.cancel()
 	}
 	p.wg.Wait()
-	// Drain any buffered results.
 	for {
 		select {
 		case <-p.results:
@@ -97,7 +93,6 @@ func (p *readPipeline) stop() {
 	}
 }
 
-// isRunning reports whether the fetcher goroutine is still active.
 func (p *readPipeline) isRunning() bool {
 	select {
 	case <-p.done:
@@ -107,17 +102,26 @@ func (p *readPipeline) isRunning() bool {
 	}
 }
 
-// restart stops the current fetcher and starts a fresh one.
 func (p *readPipeline) restart(ctx context.Context) {
 	p.stop()
 	p.done = make(chan struct{})
-	p.results = make(chan readResult, cap(p.results))
+	p.results = make(chan readResult, 1)
 	p.start(ctx)
 }
 
 func (p *readPipeline) run(ctx context.Context) {
 	defer close(p.done)
 	defer p.wg.Done()
+
+	var transferLen, allocLen uint32
+	if p.fixed {
+		nBlocks := uint32(p.bufSize) / p.blockSize
+		transferLen = nBlocks
+		allocLen = nBlocks * p.blockSize
+	} else {
+		transferLen = uint32(p.bufSize)
+		allocLen = transferLen
+	}
 
 	for {
 		select {
@@ -126,8 +130,9 @@ func (p *readPipeline) run(ctx context.Context) {
 		default:
 		}
 
-		buf := make([]byte, p.bufSize)
-		n, err := p.readOneRecord(ctx, buf)
+		// Submit one read.
+		buf := make([]byte, allocLen)
+		n, err := p.readOneRecord(ctx, transferLen, allocLen, buf)
 
 		result := readResult{data: buf[:max(n, 0)], n: max(n, 0), err: err}
 
@@ -137,29 +142,17 @@ func (p *readPipeline) run(ctx context.Context) {
 			return
 		}
 
-		// Terminal conditions stop pre-fetching.
 		if err != nil {
 			return
 		}
 	}
 }
 
-// readOneRecord issues a single SCSI READ and returns the result.
-// This is the same logic as Drive.readSync but doesn't need a Drive reference.
-func (p *readPipeline) readOneRecord(ctx context.Context, buf []byte) (int, error) {
-	var transferLen, allocLen uint32
-	if p.fixed {
-		nBlocks := uint32(len(buf)) / p.blockSize
-		if nBlocks == 0 {
-			return 0, errors.New("tape: pipeline: buffer too small for block size")
-		}
-		transferLen = nBlocks
-		allocLen = nBlocks * p.blockSize
-	} else {
-		transferLen = uint32(len(buf))
-		allocLen = transferLen
-	}
-
+// readOneRecord submits a StreamExecute, then immediately returns the
+// StreamResult handle. The actual data consumption happens next, while
+// the SCSI command for the FOLLOWING record can already be queued by
+// the session's command window.
+func (p *readPipeline) readOneRecord(ctx context.Context, transferLen, allocLen uint32, buf []byte) (int, error) {
 	cdb := ssc.ReadCDB(p.fixed, p.sili, transferLen)
 
 	sr, err := p.session.Raw().StreamExecute(ctx, p.lun, cdb, uiscsi.WithDataIn(allocLen))
@@ -167,13 +160,14 @@ func (p *readPipeline) readOneRecord(ctx context.Context, buf []byte) (int, erro
 		return 0, err
 	}
 
-	n, readErr := io.ReadFull(sr.Data, buf[:allocLen])
+	n, readErr := io.ReadFull(sr.Data, buf)
 	if readErr == io.ErrUnexpectedEOF || readErr == io.EOF {
 		readErr = nil
 	}
 	io.Copy(io.Discard, sr.Data)
 
 	if readErr != nil {
+		sr.Wait()
 		return n, readErr
 	}
 

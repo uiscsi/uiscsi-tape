@@ -65,6 +65,7 @@ fmt.Printf("Read %d bytes: %s\n", n, buf[:n])
 - **Fixed-block mode** -- via `WithBlockSize(n)`, configures drive via MODE SELECT and reads/writes in fixed-size blocks
 - **SILI support** -- via `WithSILI(true)`, suppresses ILI on short reads
 - **Hardware compression** -- `Compression`/`SetCompression` for drive-level compression (LTO)
+- **Read-ahead pipeline** -- `WithReadAhead(4)` pre-fetches up to 4 records in background, 2-4× throughput improvement
 - **Bounded-memory streaming** -- Read uses `sess.Raw().StreamExecute` (~64KB peak memory regardless of block size)
 - **Tape-specific errors** -- `TapeError` with Filemark, EOM, ILI, BlankCheck condition flags
 - **Sentinel errors** -- `ErrFilemark`, `ErrEOM`, `ErrBlankCheck`, `ErrILI`, `ErrNotTape` for `errors.Is` matching
@@ -88,6 +89,7 @@ fmt.Printf("Read %d bytes: %s\n", n, buf[:n])
 | `Drive.Info` | Drive identification from INQUIRY |
 | `Drive.Limits` | Block size limits from READ BLOCK LIMITS |
 | `WithBlockSize` | Configure fixed-block mode (0 = variable, default) |
+| `WithReadAhead` | Pre-fetch depth for sequential read throughput (0 = disabled) |
 | `WithSILI` | Suppress Incorrect Length Indicator on short reads |
 | `WithLogger` | Inject `slog.Logger` for diagnostics |
 | `TapeError` | Error type with tape condition flags |
