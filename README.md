@@ -8,7 +8,7 @@ A pure-userspace SCSI tape (SSC) driver over iSCSI, built on [uiscsi](https://gi
 
 uiscsi-tape wraps a `uiscsi.Session` to speak SSC (SCSI Stream Commands) to tape drives over iSCSI. It handles drive probing, block limit negotiation, record-oriented I/O, and tape-specific error conditions (filemark, end-of-medium, blank check, incorrect length).
 
-Read operations use `uiscsi.StreamExecute` internally for bounded-memory streaming (~64KB) suitable for tape's large block sizes (256KB-4MB) at sustained throughput (400+ MB/s).
+Read operations use `sess.Raw().StreamExecute` internally for bounded-memory streaming (~64KB) suitable for tape's large block sizes (256KB-4MB) at sustained throughput (400+ MB/s). Drive configuration (block size, compression) uses `sess.SCSI().ModeSelect6`.
 
 ## Usage
 
@@ -57,11 +57,12 @@ fmt.Printf("Read %d bytes: %s\n", n, buf[:n])
 
 - **Drive probing** -- TEST UNIT READY + INQUIRY (device type 0x01 check) + READ BLOCK LIMITS
 - **Record I/O** -- `Read` and `Write` for record-oriented tape access
-- **Tape control** -- `WriteFilemarks` for logical record separation, `Rewind` for repositioning, `Position` for block position query
+- **Tape control** -- `WriteFilemarks` for logical record separation, `Rewind` for repositioning, `Position` for block position query, `Close` for cleanup
 - **Variable-block mode** -- default, each record can be a different size
 - **Fixed-block mode** -- via `WithBlockSize(n)`, configures drive via MODE SELECT and reads/writes in fixed-size blocks
 - **SILI support** -- via `WithSILI(true)`, suppresses ILI on short reads
-- **Bounded-memory streaming** -- Read uses `uiscsi.StreamExecute` (~64KB peak memory regardless of block size)
+- **Hardware compression** -- `Compression`/`SetCompression` for drive-level compression (LTO)
+- **Bounded-memory streaming** -- Read uses `sess.Raw().StreamExecute` (~64KB peak memory regardless of block size)
 - **Tape-specific errors** -- `TapeError` with Filemark, EOM, ILI, BlankCheck condition flags
 - **Sentinel errors** -- `ErrFilemark`, `ErrEOM`, `ErrBlankCheck`, `ErrILI`, `ErrNotTape` for `errors.Is` matching
 - **Sense parsing** -- uses `uiscsi.ParseSenseData` for SPC-4 parsing, adds tape-specific wrapping
@@ -78,6 +79,9 @@ fmt.Printf("Read %d bytes: %s\n", n, buf[:n])
 | `Drive.Position` | Query current logical block number (READ POSITION) |
 | `Drive.BlockSize` | Query drive's current block size (MODE SENSE) |
 | `Drive.SetBlockSize` | Set drive's block size (MODE SELECT) |
+| `Drive.Compression` | Query drive compression settings |
+| `Drive.SetCompression` | Enable/disable hardware compression |
+| `Drive.Close` | Restore variable-block mode if fixed was configured |
 | `Drive.Info` | Drive identification from INQUIRY |
 | `Drive.Limits` | Block size limits from READ BLOCK LIMITS |
 | `WithBlockSize` | Configure fixed-block mode (0 = variable, default) |
@@ -113,4 +117,4 @@ if errors.Is(err, tape.ErrILI) {
 ## Requirements
 
 - Go 1.25 or later
-- [github.com/rkujawa/uiscsi](https://github.com/rkujawa/uiscsi) v1.1.2 or later
+- [github.com/rkujawa/uiscsi](https://github.com/rkujawa/uiscsi) v1.2.0 or later
