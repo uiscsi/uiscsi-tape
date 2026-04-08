@@ -108,6 +108,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "error: open tape LUN %d: %v\n", *lun, err)
 		os.Exit(2)
 	}
+	defer drive.Close(ctx)
 	fmt.Fprintf(os.Stderr, "%s %s (rev %s)\n", drive.Info().VendorID, drive.Info().ProductID, drive.Info().Revision)
 
 	if *decompress {
