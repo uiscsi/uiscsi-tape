@@ -71,8 +71,18 @@ func (e *TapeError) Unwrap() error {
 	return e.Cause
 }
 
-// Is reports whether the error matches a sentinel tape error based on
-// the condition flags set in this TapeError.
+// Is reports whether err matches a sentinel tape error based on condition
+// flags. This allows errors.Is(err, ErrFilemark) to work naturally with
+// tape conditions. For direct flag access, use [TapeError.IsFilemark],
+// [TapeError.IsEOM], etc.
+//
+// Example:
+//
+//	n, err := drive.Read(ctx, buf)
+//	if errors.Is(err, tape.ErrFilemark) { /* hit filemark */ }
+//	// Or equivalently:
+//	var te *tape.TapeError
+//	if errors.As(err, &te) && te.IsFilemark() { /* hit filemark */ }
 func (e *TapeError) Is(target error) bool {
 	switch {
 	case target == ErrFilemark:

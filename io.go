@@ -49,7 +49,7 @@ func (d *Drive) Read(ctx context.Context, buf []byte) (int, error) {
 	cdb := ssc.ReadCDB(fixed, d.cfg.sili, transferLen)
 	log.Debug("tape: read", "fixed", fixed, "sili", d.cfg.sili, "transferLen", transferLen, "allocLen", allocLen)
 
-	sr, err := d.session.StreamExecute(ctx, d.lun, cdb, uiscsi.WithDataIn(allocLen))
+	sr, err := d.session.Raw().StreamExecute(ctx, d.lun, cdb, uiscsi.WithDataIn(allocLen))
 	if err != nil {
 		return 0, fmt.Errorf("tape: read: %w", err)
 	}
@@ -113,7 +113,7 @@ func (d *Drive) Write(ctx context.Context, data []byte) error {
 	cdb := ssc.WriteCDB(fixed, transferLen)
 	log.Debug("tape: write", "fixed", fixed, "transferLen", transferLen, "bytes", len(data))
 
-	result, err := d.session.Execute(ctx, d.lun, cdb,
+	result, err := d.session.Raw().Execute(ctx, d.lun, cdb,
 		uiscsi.WithDataOut(bytes.NewReader(data), uint32(len(data))),
 	)
 	if err != nil {
@@ -136,7 +136,7 @@ func (d *Drive) WriteFilemarks(ctx context.Context, count uint32) error {
 	log.Debug("tape: write filemarks", "count", count)
 
 	cdb := ssc.WriteFilemarksCDB(count)
-	result, err := d.session.Execute(ctx, d.lun, cdb)
+	result, err := d.session.Raw().Execute(ctx, d.lun, cdb)
 	if err != nil {
 		return fmt.Errorf("tape: write filemarks: %w", err)
 	}
@@ -154,17 +154,12 @@ func (d *Drive) BlockSize(ctx context.Context) (uint32, error) {
 	log := d.log()
 	log.Debug("tape: mode sense (block size query)")
 
-	cdb := ssc.ModeSense6CDB(255)
-	result, err := d.session.Execute(ctx, d.lun, cdb, uiscsi.WithDataIn(255))
+	data, err := d.session.SCSI().ModeSense6(ctx, d.lun, 0x00, 0x00)
 	if err != nil {
 		return 0, fmt.Errorf("tape: mode sense: %w", err)
 	}
 
-	if senseErr := interpretSense(result.Status, result.SenseData); senseErr != nil {
-		return 0, fmt.Errorf("tape: mode sense: %w", senseErr)
-	}
-
-	bd, err := ssc.ParseModeParameterHeader6(result.Data)
+	bd, err := ssc.ParseModeParameterHeader6(data)
 	if err != nil {
 		return 0, fmt.Errorf("tape: %w", err)
 	}
@@ -182,18 +177,9 @@ func (d *Drive) SetBlockSize(ctx context.Context, blockLength uint32) error {
 	log := d.log()
 	log.Debug("tape: mode select (set block size)", "blockLength", blockLength)
 
-	cdb := ssc.ModeSelect6CDB(12)
 	payload := ssc.BuildModeSelectData6(blockLength)
-
-	result, err := d.session.Execute(ctx, d.lun, cdb,
-		uiscsi.WithDataOut(bytes.NewReader(payload), uint32(len(payload))),
-	)
-	if err != nil {
+	if err := d.session.SCSI().ModeSelect6(ctx, d.lun, payload); err != nil {
 		return fmt.Errorf("tape: mode select: %w", err)
-	}
-
-	if senseErr := interpretSense(result.Status, result.SenseData); senseErr != nil {
-		return fmt.Errorf("tape: mode select: %w", senseErr)
 	}
 
 	log.Debug("tape: block size configured", "blockLength", blockLength)
@@ -206,16 +192,12 @@ func (d *Drive) Compression(ctx context.Context) (dce, dde bool, err error) {
 	log := d.log()
 	log.Debug("tape: mode sense (compression query)")
 
-	cdb := ssc.ModeSense6PageCDB(0x0F, 255)
-	result, err := d.session.Execute(ctx, d.lun, cdb, uiscsi.WithDataIn(255))
+	data, err := d.session.SCSI().ModeSense6(ctx, d.lun, 0x0F, 0x00)
 	if err != nil {
 		return false, false, fmt.Errorf("tape: mode sense compression: %w", err)
 	}
-	if senseErr := interpretSense(result.Status, result.SenseData); senseErr != nil {
-		return false, false, fmt.Errorf("tape: mode sense compression: %w", senseErr)
-	}
 
-	cc, err := ssc.ParseCompressionPage(result.Data)
+	cc, err := ssc.ParseCompressionPage(data)
 	if err != nil {
 		return false, false, fmt.Errorf("tape: %w", err)
 	}
@@ -233,16 +215,8 @@ func (d *Drive) SetCompression(ctx context.Context, dce, dde bool) error {
 	log.Debug("tape: mode select (set compression)", "dce", dce, "dde", dde)
 
 	payload := ssc.BuildCompressionPage(dce, dde)
-	cdb := ssc.ModeSelect6CDB(uint8(len(payload)))
-
-	result, err := d.session.Execute(ctx, d.lun, cdb,
-		uiscsi.WithDataOut(bytes.NewReader(payload), uint32(len(payload))),
-	)
-	if err != nil {
+	if err := d.session.SCSI().ModeSelect6(ctx, d.lun, payload); err != nil {
 		return fmt.Errorf("tape: mode select compression: %w", err)
-	}
-	if senseErr := interpretSense(result.Status, result.SenseData); senseErr != nil {
-		return fmt.Errorf("tape: mode select compression: %w", senseErr)
 	}
 
 	log.Debug("tape: compression configured", "dce", dce, "dde", dde)
@@ -256,7 +230,7 @@ func (d *Drive) Position(ctx context.Context) (*Position, error) {
 	log.Debug("tape: read position")
 
 	cdb := ssc.ReadPositionCDB()
-	result, err := d.session.Execute(ctx, d.lun, cdb, uiscsi.WithDataIn(20))
+	result, err := d.session.Raw().Execute(ctx, d.lun, cdb, uiscsi.WithDataIn(20))
 	if err != nil {
 		return nil, fmt.Errorf("tape: read position: %w", err)
 	}
@@ -278,6 +252,17 @@ func (d *Drive) Position(ctx context.Context) (*Position, error) {
 	}, nil
 }
 
+// Close releases drive resources. If the drive was opened with
+// [WithBlockSize] (fixed-block mode), Close restores variable-block mode
+// via MODE SELECT. Safe to call multiple times.
+func (d *Drive) Close(ctx context.Context) error {
+	if d.cfg.blockSize > 0 {
+		d.log().Debug("tape: close — restoring variable-block mode")
+		return d.SetBlockSize(ctx, 0)
+	}
+	return nil
+}
+
 // Rewind repositions the tape to the beginning of the first partition.
 // The call blocks until the rewind completes; use ctx for timeout control.
 func (d *Drive) Rewind(ctx context.Context) error {
@@ -285,7 +270,7 @@ func (d *Drive) Rewind(ctx context.Context) error {
 	log.Debug("tape: rewind")
 
 	cdb := ssc.RewindCDB(false)
-	result, err := d.session.Execute(ctx, d.lun, cdb)
+	result, err := d.session.Raw().Execute(ctx, d.lun, cdb)
 	if err != nil {
 		return fmt.Errorf("tape: rewind: %w", err)
 	}

@@ -45,7 +45,7 @@ func (d *Drive) Limits() BlockLimits { return d.limits }
 // the drive reports GOOD, or the last error after turMaxRetries attempts.
 func pollUnitReady(ctx context.Context, session *uiscsi.Session, lun uint64, log *slog.Logger) error {
 	for attempt := range turMaxRetries {
-		err := session.TestUnitReady(ctx, lun)
+		err := session.SCSI().TestUnitReady(ctx, lun)
 		if err == nil {
 			return nil
 		}
@@ -98,7 +98,7 @@ func Open(ctx context.Context, session *uiscsi.Session, lun uint64, opts ...Opti
 
 	// Step 2: INQUIRY
 	log.Debug("tape: probe step 2 -- INQUIRY", "lun", lun)
-	inq, err := session.Inquiry(ctx, lun)
+	inq, err := session.SCSI().Inquiry(ctx, lun)
 	if err != nil {
 		return nil, fmt.Errorf("tape: inquiry failed: %w", err)
 	}
@@ -119,7 +119,7 @@ func Open(ctx context.Context, session *uiscsi.Session, lun uint64, opts ...Opti
 
 	// Step 3: READ BLOCK LIMITS
 	log.Debug("tape: probe step 3 -- READ BLOCK LIMITS", "lun", lun)
-	result, err := session.Execute(ctx, lun, ssc.ReadBlockLimitsCDB(), uiscsi.WithDataIn(6))
+	result, err := session.Raw().Execute(ctx, lun, ssc.ReadBlockLimitsCDB(), uiscsi.WithDataIn(6))
 	if err != nil {
 		return nil, fmt.Errorf("tape: READ BLOCK LIMITS failed: %w", err)
 	}
