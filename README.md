@@ -2,7 +2,7 @@
 
 A pure-userspace SCSI tape (SSC) driver over iSCSI, built on [uiscsi](https://github.com/rkujawa/uiscsi).
 
-**Status:** v0.2.0 -- full record-oriented tape I/O: Read, Write, WriteFilemarks, Rewind. Variable and fixed block modes. Bounded-memory streaming via `uiscsi.StreamExecute`.
+**Status:** v0.3.0 -- full record-oriented tape I/O: Read, Write, WriteFilemarks, Rewind. Variable and fixed block modes. 2-deep command pipelining. Bounded-memory streaming via `sess.Raw().StreamExecute`.
 
 ## Overview
 
@@ -65,7 +65,7 @@ fmt.Printf("Read %d bytes: %s\n", n, buf[:n])
 - **Fixed-block mode** -- via `WithBlockSize(n)`, configures drive via MODE SELECT and reads/writes in fixed-size blocks
 - **SILI support** -- via `WithSILI(true)`, suppresses ILI on short reads
 - **Hardware compression** -- `Compression`/`SetCompression` for drive-level compression (LTO)
-- **Read-ahead pipeline** -- `WithReadAhead(4)` pre-fetches up to 4 records in background, 2-4× throughput improvement
+- **Read-ahead pipeline** -- `WithReadAhead(1)` enables 2-deep command pipelining, hiding network RTT
 - **Bounded-memory streaming** -- Read uses `sess.Raw().StreamExecute` (~64KB peak memory regardless of block size)
 - **Tape-specific errors** -- `TapeError` with Filemark, EOM, ILI, BlankCheck condition flags
 - **Sentinel errors** -- `ErrFilemark`, `ErrEOM`, `ErrBlankCheck`, `ErrILI`, `ErrNotTape` for `errors.Is` matching
@@ -122,4 +122,4 @@ if errors.Is(err, tape.ErrILI) {
 ## Requirements
 
 - Go 1.25 or later
-- [github.com/rkujawa/uiscsi](https://github.com/rkujawa/uiscsi) v1.2.0 or later
+- [github.com/rkujawa/uiscsi](https://github.com/rkujawa/uiscsi) v1.3.0 or later
