@@ -93,6 +93,7 @@ func main() {
 	// Open tape drive.
 	var tapeOpts []tape.Option
 	tapeOpts = append(tapeOpts, tape.WithLogger(logger))
+	tapeOpts = append(tapeOpts, tape.WithReadAhead(4)) // pre-fetch for throughput
 	if *fixed {
 		if *bs == 0 {
 			fmt.Fprintf(os.Stderr, "error: -fixed requires -bs to specify block size\n")

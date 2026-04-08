@@ -3,6 +3,7 @@ package tape
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 
@@ -30,6 +31,14 @@ import (
 // [ErrFilemark]. A read past the end of written data returns (0, err)
 // where err matches [ErrBlankCheck].
 func (d *Drive) Read(ctx context.Context, buf []byte) (int, error) {
+	if d.cfg.readAhead > 0 {
+		return d.readPipelined(ctx, buf)
+	}
+	return d.readSync(ctx, buf)
+}
+
+// readSync is the original synchronous read — one SCSI command per call.
+func (d *Drive) readSync(ctx context.Context, buf []byte) (int, error) {
 	log := d.log()
 	fixed := d.cfg.blockSize > 0
 
@@ -54,15 +63,10 @@ func (d *Drive) Read(ctx context.Context, buf []byte) (int, error) {
 		return 0, fmt.Errorf("tape: read: %w", err)
 	}
 
-	// Consume streamed data into buf. Short reads and empty reads are
-	// normal for tape: variable-block records may be shorter than the
-	// buffer, and conditions like filemark/blank check produce no data
-	// at all (immediate EOF from the chanReader).
 	n, readErr := io.ReadFull(sr.Data, buf[:allocLen])
 	if readErr == io.ErrUnexpectedEOF || readErr == io.EOF {
 		readErr = nil
 	}
-	// Drain any unconsumed data to unblock Wait.
 	io.Copy(io.Discard, sr.Data)
 
 	if readErr != nil {
@@ -83,6 +87,69 @@ func (d *Drive) Read(ctx context.Context, buf []byte) (int, error) {
 	return n, nil
 }
 
+// readPipelined reads from the pre-fetch pipeline. Lazy-starts the
+// pipeline on first call. Auto-restarts after filemark (next file).
+func (d *Drive) readPipelined(ctx context.Context, buf []byte) (int, error) {
+	// Lazy-start the pipeline. Use caller's buffer size as the per-record
+	// buffer size — this matches the SCSI READ transfer length the caller expects.
+	if d.pipeline == nil {
+		d.pipeline = newReadPipeline(pipelineConfig{
+			session:   d.session,
+			lun:       d.lun,
+			blockSize: d.cfg.blockSize,
+			sili:      d.cfg.sili,
+			depth:     d.cfg.readAhead,
+			bufSize:   len(buf),
+			logger:    d.log(),
+		})
+		d.pipeline.start(ctx)
+	} else if !d.pipeline.isRunning() {
+		// Pipeline exhausted (filemark/error) — check if we should restart.
+		// If there are still buffered results, consume them first.
+		select {
+		case result, ok := <-d.pipeline.results:
+			if ok {
+				n := copy(buf, result.data)
+				if errors.Is(result.err, ErrFilemark) {
+					// Filemark — restart pipeline for next file.
+					d.pipeline.restart(ctx)
+				}
+				return n, result.err
+			}
+		default:
+			// Channel drained and fetcher dead — restart.
+			d.pipeline.restart(ctx)
+		}
+	}
+
+	select {
+	case result, ok := <-d.pipeline.results:
+		if !ok {
+			return 0, io.EOF
+		}
+		n := copy(buf, result.data)
+		d.log().Debug("tape: read complete (pipelined)", "n", n)
+
+		// On filemark, restart pipeline for the next file.
+		if errors.Is(result.err, ErrFilemark) {
+			d.pipeline.restart(ctx)
+		}
+		return n, result.err
+
+	case <-ctx.Done():
+		return 0, ctx.Err()
+	}
+}
+
+// stopPipeline stops the read-ahead pipeline if active. Must be called
+// before any operation that changes tape position or state.
+func (d *Drive) stopPipeline() {
+	if d.pipeline != nil {
+		d.pipeline.stop()
+		d.pipeline = nil
+	}
+}
+
 // Write writes one record to the current tape position.
 //
 // In variable-block mode (the default), data is written as a single
@@ -97,6 +164,7 @@ func (d *Drive) Read(ctx context.Context, buf []byte) (int, error) {
 // A hard end-of-medium (volume overflow) returns an error matching
 // neither ErrEOM nor nil.
 func (d *Drive) Write(ctx context.Context, data []byte) error {
+	d.stopPipeline()
 	log := d.log()
 	fixed := d.cfg.blockSize > 0
 
@@ -132,6 +200,7 @@ func (d *Drive) Write(ctx context.Context, data []byte) error {
 // WriteFilemarks writes count filemarks at the current tape position.
 // Filemarks serve as logical record separators on tape.
 func (d *Drive) WriteFilemarks(ctx context.Context, count uint32) error {
+	d.stopPipeline()
 	log := d.log()
 	log.Debug("tape: write filemarks", "count", count)
 
@@ -174,6 +243,7 @@ func (d *Drive) BlockSize(ctx context.Context) (uint32, error) {
 // if fixed-block mode is desired; the drive will reject fixed-block
 // CDBs unless its block descriptor matches.
 func (d *Drive) SetBlockSize(ctx context.Context, blockLength uint32) error {
+	d.stopPipeline()
 	log := d.log()
 	log.Debug("tape: mode select (set block size)", "blockLength", blockLength)
 
@@ -211,6 +281,7 @@ func (d *Drive) Compression(ctx context.Context) (dce, dde bool, err error) {
 // writes, dde=true to enable decompression on reads. Most drives
 // require DDE=true to read compressed tapes.
 func (d *Drive) SetCompression(ctx context.Context, dce, dde bool) error {
+	d.stopPipeline()
 	log := d.log()
 	log.Debug("tape: mode select (set compression)", "dce", dce, "dde", dde)
 
@@ -256,6 +327,7 @@ func (d *Drive) Position(ctx context.Context) (*Position, error) {
 // [WithBlockSize] (fixed-block mode), Close restores variable-block mode
 // via MODE SELECT. Safe to call multiple times.
 func (d *Drive) Close(ctx context.Context) error {
+	d.stopPipeline()
 	if d.cfg.blockSize > 0 {
 		d.log().Debug("tape: close — restoring variable-block mode")
 		return d.SetBlockSize(ctx, 0)
@@ -266,6 +338,7 @@ func (d *Drive) Close(ctx context.Context) error {
 // Rewind repositions the tape to the beginning of the first partition.
 // The call blocks until the rewind completes; use ctx for timeout control.
 func (d *Drive) Rewind(ctx context.Context) error {
+	d.stopPipeline()
 	log := d.log()
 	log.Debug("tape: rewind")
 

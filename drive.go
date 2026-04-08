@@ -18,11 +18,12 @@ const (
 
 // Drive represents an opened SSC tape drive over an iSCSI session.
 type Drive struct {
-	session *uiscsi.Session
-	lun     uint64
-	info    DriveInfo
-	limits  BlockLimits
-	cfg     driveConfig
+	session  *uiscsi.Session
+	lun      uint64
+	info     DriveInfo
+	limits   BlockLimits
+	cfg      driveConfig
+	pipeline *readPipeline // non-nil when readAhead > 0, lazy-started
 }
 
 // log returns the configured logger, falling back to slog.Default().

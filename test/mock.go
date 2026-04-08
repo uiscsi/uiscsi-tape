@@ -414,9 +414,12 @@ func (m *MockTapeDrive) handleRead(conn net.Conn, itt, cmdSN uint32, statSN *uin
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Check if position is at a filemark
-	for _, fmPos := range m.filemarks {
+	// Check if position is at a filemark. Consume it — remove from list
+	// so subsequent reads proceed to the next record. Real drives advance
+	// past the filemark on read.
+	for i, fmPos := range m.filemarks {
 		if fmPos == m.position {
+			m.filemarks = append(m.filemarks[:i], m.filemarks[i+1:]...)
 			sense := makeFixedSense(0x00, true, false, false, 0x00, 0x01) // FILEMARK
 			sendSCSIResponse(conn, itt, cmdSN, statSN, 0x02, sense)
 			return
