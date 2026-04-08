@@ -19,8 +19,11 @@ import (
 )
 
 // Connect to an iSCSI target.
+// For tape performance, increase MaxRecvDataSegmentLength from the
+// default 8KB. 256KB is a good choice for LTO drives.
 sess, err := uiscsi.Dial(ctx, "192.168.1.100:3260",
     uiscsi.WithTarget("iqn.2026-03.com.example:tape"),
+    uiscsi.WithMaxRecvDataSegmentLength(262144),
 )
 if err != nil { log.Fatal(err) }
 defer sess.Close()
