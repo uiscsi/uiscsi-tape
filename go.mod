@@ -5,4 +5,4 @@ go 1.25
 // Development replace directive — remove before publishing.
 replace github.com/rkujawa/uiscsi => ../uiscsi-repo
 
-require github.com/rkujawa/uiscsi v1.2.0
+require github.com/rkujawa/uiscsi v1.3.0

@@ -30,18 +30,19 @@ func WithBlockSize(n uint32) Option {
 	}
 }
 
-// WithReadAhead enables a read-ahead pipeline that pre-fetches up to
-// depth records from tape in a background goroutine. This overlaps tape
-// I/O with data processing, significantly improving throughput for
-// sequential reads (2-4× typical improvement).
+// WithReadAhead enables a 2-deep command pipeline that overlaps network
+// RTT with data consumption. While the current record is being processed,
+// the next SCSI READ is already in flight.
 //
-// Default is 0 (disabled — synchronous reads). A depth of 4 is a good
-// starting point. The pipeline is lazy-started on the first [Drive.Read]
-// call and automatically stopped/restarted on tape position changes
-// (Write, Rewind, WriteFilemarks, etc.).
+// Default is 0 (disabled — synchronous reads). Any positive value enables
+// pipelining. The depth parameter is reserved for future use; currently
+// the pipeline always uses 2-deep regardless of the value.
 //
-// The pipeline allocates one buffer per depth slot: blockSize bytes for
-// fixed-block mode, or 256KB for variable-block mode.
+// On filemark boundaries, the look-ahead read's data is saved and
+// delivered as the first record of the next file (no data loss).
+//
+// The pipeline is lazy-started on the first [Drive.Read] call and
+// automatically stopped on tape position changes (Write, Rewind, etc.).
 func WithReadAhead(depth int) Option {
 	return func(c *driveConfig) {
 		c.readAhead = depth
