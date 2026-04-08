@@ -130,7 +130,6 @@ func (p *readPipeline) run(ctx context.Context) {
 		default:
 		}
 
-		// Submit one read.
 		buf := make([]byte, allocLen)
 		n, err := p.readOneRecord(ctx, transferLen, allocLen, buf)
 
