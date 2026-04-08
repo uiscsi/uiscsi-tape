@@ -77,7 +77,7 @@ func main() {
 	var opts []uiscsi.Option
 	opts = append(opts, uiscsi.WithTarget(*target))
 	opts = append(opts, uiscsi.WithLogger(logger))
-	opts = append(opts, uiscsi.WithMaxRecvDataSegmentLength(1048576)) // 1MB — minimize PDUs per block
+	opts = append(opts, uiscsi.WithMaxRecvDataSegmentLength(524288)) // target sends 256KB PDUs regardless, but declare our ceiling
 	if *initiatorName != "" {
 		opts = append(opts, uiscsi.WithInitiatorName(*initiatorName))
 	}
