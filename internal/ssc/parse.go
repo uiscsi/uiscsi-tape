@@ -72,8 +72,10 @@ func ParseModeParameterHeader6(data []byte) (*BlockDescriptor, error) {
 // parameter header + 8-byte block descriptor.
 func BuildModeSelectData6(blockLength uint32) []byte {
 	data := make([]byte, 12)
-	// Bytes 0-2: reserved (0)
-	data[3] = 8 // Block Descriptor Length
+	// Byte 0: reserved (0)
+	// Byte 1: medium type (0)
+	data[2] = 0x10 // Device-Specific: Buffered Mode = 1 (SSC-3 8.3.3)
+	data[3] = 8    // Block Descriptor Length
 	// Byte 4: Density Code (0 = default)
 	// Bytes 5-7: Number of Blocks (0 = all remaining)
 	// Byte 8: Reserved
@@ -124,7 +126,8 @@ func ParseCompressionPage(data []byte) (*CompressionConfig, error) {
 func BuildCompressionPage(dce, dde bool) []byte {
 	data := make([]byte, 28)
 	// Header.
-	data[3] = 8 // Block Descriptor Length
+	data[2] = 0x10 // Device-Specific: Buffered Mode = 1 (SSC-3 8.3.3)
+	data[3] = 8    // Block Descriptor Length
 	// Block descriptor: 8 bytes of zeros (don't change block size).
 	// Compression page at offset 12.
 	data[12] = 0x0F       // Page code

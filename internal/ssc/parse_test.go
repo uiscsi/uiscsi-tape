@@ -132,6 +132,9 @@ func TestBuildModeSelectData6(t *testing.T) {
 	if len(data) != 12 {
 		t.Fatalf("length = %d, want 12", len(data))
 	}
+	if data[2] != 0x10 {
+		t.Errorf("device-specific param = 0x%02X, want 0x10 (buffered mode)", data[2])
+	}
 	if data[3] != 8 {
 		t.Errorf("block descriptor length = %d, want 8", data[3])
 	}
@@ -146,6 +149,9 @@ func TestBuildModeSelectData6(t *testing.T) {
 	bl0 := uint32(data0[9])<<16 | uint32(data0[10])<<8 | uint32(data0[11])
 	if bl0 != 0 {
 		t.Errorf("variable block length = %d, want 0", bl0)
+	}
+	if data0[2] != 0x10 {
+		t.Errorf("variable mode: device-specific param = 0x%02X, want 0x10", data0[2])
 	}
 }
 
