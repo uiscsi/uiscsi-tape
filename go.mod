@@ -1,8 +1,5 @@
-module github.com/rkujawa/uiscsi-tape
+module github.com/uiscsi/uiscsi-tape
 
 go 1.25
 
-// Development replace directive — remove before publishing.
-replace github.com/rkujawa/uiscsi => ../uiscsi-repo
-
-require github.com/rkujawa/uiscsi v1.3.0
+require github.com/uiscsi/uiscsi v1.3.0
