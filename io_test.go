@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	tape "github.com/rkujawa/uiscsi-tape"
-	"github.com/rkujawa/uiscsi-tape/test"
+	tape "github.com/uiscsi/uiscsi-tape"
+	"github.com/uiscsi/uiscsi-tape/test"
 )
 
 func testCtx(t *testing.T) context.Context {

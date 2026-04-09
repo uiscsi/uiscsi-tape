@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/rkujawa/uiscsi"
-	"github.com/rkujawa/uiscsi-tape/internal/ssc"
+	"github.com/uiscsi/uiscsi"
+	"github.com/uiscsi/uiscsi-tape/internal/ssc"
 )
 
 // Read reads one record from the current tape position into buf.
@@ -67,7 +67,7 @@ func (d *Drive) readSync(ctx context.Context, buf []byte) (int, error) {
 	if readErr == io.ErrUnexpectedEOF || readErr == io.EOF {
 		readErr = nil
 	}
-	io.Copy(io.Discard, sr.Data)
+	io.Copy(io.Discard, sr.Data) // drain remaining data; error irrelevant, status from sr.Wait()
 
 	if readErr != nil {
 		return n, fmt.Errorf("tape: read: %w", readErr)

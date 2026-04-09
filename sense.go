@@ -3,7 +3,7 @@ package tape
 import (
 	"fmt"
 
-	"github.com/rkujawa/uiscsi"
+	"github.com/uiscsi/uiscsi"
 )
 
 // interpretSense converts raw SCSI status + sense bytes into a *TapeError.

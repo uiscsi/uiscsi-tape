@@ -6,8 +6,8 @@ import (
 	"log/slog"
 	"sync"
 
-	"github.com/rkujawa/uiscsi"
-	"github.com/rkujawa/uiscsi-tape/internal/ssc"
+	"github.com/uiscsi/uiscsi"
+	"github.com/uiscsi/uiscsi-tape/internal/ssc"
 )
 
 const defaultReadAheadBufSize = 262144
@@ -187,6 +187,10 @@ func (p *readPipeline) run(ctx context.Context) {
 			// Save the look-ahead read for the next file.
 			savedN, savedErr := p.consumeRead(ctx, next)
 			if savedN > 0 || savedErr == nil {
+				// The data slice references next.buf's backing array. Even though
+				// this goroutine exits and next goes out of scope, the backing
+				// array remains reachable through savedResult.data — Go's GC
+				// keeps it alive until the next pipeline run delivers it.
 				p.savedResult = &readResult{
 					data: next.buf[:max(savedN, 0)],
 					n:    max(savedN, 0),
@@ -233,7 +237,7 @@ func (p *readPipeline) consumeRead(ctx context.Context, pr pendingRead) (int, er
 	if readErr == io.ErrUnexpectedEOF || readErr == io.EOF {
 		readErr = nil
 	}
-	io.Copy(io.Discard, pr.sr.Data)
+	io.Copy(io.Discard, pr.sr.Data) // drain remaining data; error irrelevant, status from sr.Wait()
 
 	if readErr != nil {
 		pr.sr.Wait()
@@ -255,7 +259,7 @@ func (p *readPipeline) consumeRead(ctx context.Context, pr pendingRead) (int, er
 
 func (p *readPipeline) drainPending(pr pendingRead) {
 	if pr.sr != nil && pr.sr.Data != nil {
-		io.Copy(io.Discard, pr.sr.Data)
+		io.Copy(io.Discard, pr.sr.Data) // drain remaining data; error irrelevant
 		pr.sr.Wait()
 	}
 }

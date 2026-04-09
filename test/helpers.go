@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/rkujawa/uiscsi"
+	"github.com/uiscsi/uiscsi"
 )
 
 // SetupMock creates a MockTapeDrive with 1 MiB media and returns it along

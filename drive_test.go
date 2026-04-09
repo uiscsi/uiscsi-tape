@@ -6,8 +6,8 @@ import (
 	"errors"
 	"testing"
 
-	tape "github.com/rkujawa/uiscsi-tape"
-	"github.com/rkujawa/uiscsi-tape/test"
+	tape "github.com/uiscsi/uiscsi-tape"
+	"github.com/uiscsi/uiscsi-tape/test"
 )
 
 func TestOpen(t *testing.T) {

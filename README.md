@@ -1,6 +1,6 @@
 # uiscsi-tape
 
-A pure-userspace SCSI tape (SSC) driver over iSCSI, built on [uiscsi](https://github.com/rkujawa/uiscsi).
+A pure-userspace SCSI tape (SSC) driver over iSCSI, built on [uiscsi](https://github.com/uiscsi/uiscsi).
 
 **Status:** v0.3.0 -- full record-oriented tape I/O: Read, Write, WriteFilemarks, Rewind. Variable and fixed block modes. 2-deep command pipelining. Bounded-memory streaming via `sess.Raw().StreamExecute`.
 
@@ -14,8 +14,8 @@ Read operations use `sess.Raw().StreamExecute` internally for bounded-memory str
 
 ```go
 import (
-    "github.com/rkujawa/uiscsi"
-    tape "github.com/rkujawa/uiscsi-tape"
+    "github.com/uiscsi/uiscsi"
+    tape "github.com/uiscsi/uiscsi-tape"
 )
 
 // Connect to an iSCSI target.
@@ -122,4 +122,4 @@ if errors.Is(err, tape.ErrILI) {
 ## Requirements
 
 - Go 1.25 or later
-- [github.com/rkujawa/uiscsi](https://github.com/rkujawa/uiscsi) v1.3.0 or later
+- [github.com/uiscsi/uiscsi](https://github.com/uiscsi/uiscsi) v1.3.0 or later

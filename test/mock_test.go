@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rkujawa/uiscsi"
-	"github.com/rkujawa/uiscsi-tape/internal/ssc"
+	"github.com/uiscsi/uiscsi"
+	"github.com/uiscsi/uiscsi-tape/internal/ssc"
 )
 
 func TestMockTUR(t *testing.T) {

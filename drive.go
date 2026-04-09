@@ -7,8 +7,8 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/rkujawa/uiscsi"
-	"github.com/rkujawa/uiscsi-tape/internal/ssc"
+	"github.com/uiscsi/uiscsi"
+	"github.com/uiscsi/uiscsi-tape/internal/ssc"
 )
 
 const (
@@ -17,6 +17,8 @@ const (
 )
 
 // Drive represents an opened SSC tape drive over an iSCSI session.
+// Drive methods are not safe for concurrent use. A single goroutine
+// should own the Drive; coordinate externally if shared access is needed.
 type Drive struct {
 	session  *uiscsi.Session
 	lun      uint64
