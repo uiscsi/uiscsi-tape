@@ -134,3 +134,4 @@ if errors.Is(err, tape.ErrILI) {
 
 - Go 1.25 or later
 - [github.com/uiscsi/uiscsi](https://github.com/uiscsi/uiscsi)
+- Tests require [goleak](https://github.com/uber-go/goleak) for goroutine leak detection (test-only; not imported by library code)
