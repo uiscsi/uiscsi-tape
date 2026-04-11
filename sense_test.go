@@ -29,7 +29,7 @@ func TestInterpretSense(t *testing.T) {
 		{
 			name:      "CHECK CONDITION with filemark",
 			status:    0x02,
-			senseData: makeSense(0x70, 0x80|0x00, 0, 0), // filemark + NO_SENSE
+			senseData: makeSense(0x70, 0x80, 0, 0), // filemark + NO_SENSE
 			wantFM:    true,
 			wantKey:   0x00,
 			wantIs:    []error{ErrFilemark},
@@ -38,7 +38,7 @@ func TestInterpretSense(t *testing.T) {
 		{
 			name:      "CHECK CONDITION with EOM",
 			status:    0x02,
-			senseData: makeSense(0x70, 0x40|0x00, 0, 0), // EOM + NO_SENSE
+			senseData: makeSense(0x70, 0x40, 0, 0), // EOM + NO_SENSE
 			wantEOM:   true,
 			wantKey:   0x00,
 			wantIs:    []error{ErrEOM},
@@ -65,7 +65,7 @@ func TestInterpretSense(t *testing.T) {
 		{
 			name:      "CHECK CONDITION with all bits set",
 			status:    0x02,
-			senseData: makeSense(0x70, 0xE0|0x00, 0, 0), // FM+EOM+ILI + NO_SENSE
+			senseData: makeSense(0x70, 0xE0, 0, 0), // FM+EOM+ILI + NO_SENSE
 			wantFM:    true,
 			wantEOM:   true,
 			wantILI:   true,
