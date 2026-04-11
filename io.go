@@ -110,6 +110,10 @@ func (d *Drive) readPipelined(ctx context.Context, buf []byte) (int, error) {
 		case result, ok := <-d.pipeline.results:
 			if ok {
 				n := copy(buf, result.data)
+				if len(result.data) > len(buf) && result.err == nil {
+					return n, fmt.Errorf("tape: read: record (%d bytes) exceeds buffer (%d bytes): %w",
+						len(result.data), len(buf), ErrILI)
+				}
 				if errors.Is(result.err, ErrFilemark) {
 					// Filemark — restart pipeline for next file.
 					d.pipeline.restart(ctx)
@@ -128,6 +132,10 @@ func (d *Drive) readPipelined(ctx context.Context, buf []byte) (int, error) {
 			return 0, io.EOF
 		}
 		n := copy(buf, result.data)
+		if len(result.data) > len(buf) && result.err == nil {
+			return n, fmt.Errorf("tape: read: record (%d bytes) exceeds buffer (%d bytes): %w",
+				len(result.data), len(buf), ErrILI)
+		}
 		d.log().Debug("tape: read complete (pipelined)", "n", n)
 
 		// On filemark, restart pipeline for the next file.
