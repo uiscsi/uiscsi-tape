@@ -175,22 +175,14 @@ func (p *readPipeline) run(ctx context.Context) {
 		n, consumeErr := p.consumeRead(ctx, cur)
 		result := readResult{data: cur.buf[:max(n, 0)], n: max(n, 0), err: consumeErr}
 
-		select {
-		case p.results <- result:
-		case <-ctx.Done():
-			p.drainPending(next)
-			return
-		}
-
 		if consumeErr != nil {
 			// Terminal condition (filemark, blank check, error).
-			// Save the look-ahead read for the next file.
+			// Consume the look-ahead BEFORE sending the terminal result
+			// to the channel. Once the result is delivered, readPipelined
+			// may call restart() → stop() → cancel(), which would kill
+			// the in-flight StreamExecute for next and lose its data.
 			savedN, savedErr := p.consumeRead(ctx, next)
 			if savedN > 0 || savedErr == nil {
-				// The data slice references next.buf's backing array. Even though
-				// this goroutine exits and next goes out of scope, the backing
-				// array remains reachable through savedResult.data — Go's GC
-				// keeps it alive until the next pipeline run delivers it.
 				p.savedResult = &readResult{
 					data: next.buf[:max(savedN, 0)],
 					n:    max(savedN, 0),
@@ -202,6 +194,18 @@ func (p *readPipeline) run(ctx context.Context) {
 				p.logger.Debug("tape: pipeline look-ahead also errored",
 					"err", savedErr)
 			}
+
+			select {
+			case p.results <- result:
+			case <-ctx.Done():
+			}
+			return
+		}
+
+		select {
+		case p.results <- result:
+		case <-ctx.Done():
+			p.drainPending(next)
 			return
 		}
 
