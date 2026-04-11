@@ -2,7 +2,7 @@
 
 A pure-userspace SCSI tape (SSC) driver over iSCSI, built on [uiscsi](https://github.com/uiscsi/uiscsi).
 
-**Status:** v0.3.0 -- full record-oriented tape I/O: Read, Write, WriteFilemarks, Rewind. Variable and fixed block modes. 2-deep command pipelining. Bounded-memory streaming via `sess.Raw().StreamExecute`.
+**Status:** Full record-oriented tape I/O with 2-deep command pipelining and bounded-memory streaming. Variable and fixed block modes. Configurable TUR retry for media load detection. Write atomicity guaranteed at the SCSI level.
 
 ## Overview
 
@@ -59,17 +59,26 @@ fmt.Printf("Read %d bytes: %s\n", n, buf[:n])
 ## Features
 
 - **Drive probing** -- TEST UNIT READY + INQUIRY (device type 0x01 check) + READ BLOCK LIMITS
+- **Configurable TUR retry** -- `WithTURRetryInterval` and `WithTURRetryCount` control how `Open()` polls TEST UNIT READY while the drive loads media; UNIT ATTENTION and NOT READY are normal during this window
 - **Record I/O** -- `Read` and `Write` for record-oriented tape access
+- **Write atomicity** -- each `Write()` call maps to a single SCSI WRITE(6) command; the drive either writes the complete record or returns an error (see Write Atomicity below)
 - **Tape control** -- `WriteFilemarks` for logical record separation, `Rewind` for repositioning, `Position` for block position query, `Close` for cleanup
 - **Variable-block mode** -- default, each record can be a different size
 - **Fixed-block mode** -- via `WithBlockSize(n)`, configures drive via MODE SELECT and reads/writes in fixed-size blocks
 - **SILI support** -- via `WithSILI(true)`, suppresses ILI on short reads
 - **Hardware compression** -- `Compression`/`SetCompression` for drive-level compression (LTO)
-- **Read-ahead pipeline** -- `WithReadAhead(1)` enables 2-deep command pipelining, hiding network RTT
+- **Read-ahead pipeline** -- `WithReadAhead(1)` enables 2-deep command pipelining, hiding network RTT and providing continuous tape motion on sequential reads
 - **Bounded-memory streaming** -- Read uses `sess.Raw().StreamExecute` (~64KB peak memory regardless of block size)
 - **Tape-specific errors** -- `TapeError` with Filemark, EOM, ILI, BlankCheck condition flags
 - **Sentinel errors** -- `ErrFilemark`, `ErrEOM`, `ErrBlankCheck`, `ErrILI`, `ErrNotTape` for `errors.Is` matching
 - **Sense parsing** -- uses `uiscsi.ParseSenseData` for SPC-4 parsing, adds tape-specific wrapping
+- **slog diagnostics** -- `WithLogger` injects a `slog.Logger` for drive operations and error events
+
+## Write Atomicity
+
+Each `Write()` call issues a single SCSI WRITE(6) command to the drive. The drive either writes the complete record — exactly the bytes passed to `Write()` — or returns an error. There are no partial records written to tape.
+
+This guarantee matters for applications that need to reason about tape content after an error. If `Write()` returns an error, the tape position is either at the start of the failed record (if the drive rejected the command) or the application should treat the tape state as undefined and rewind before continuing. Applications writing structured data should write filemarks at logical boundaries so that partial content can be identified and skipped on re-read.
 
 ## API
 
@@ -77,7 +86,7 @@ fmt.Printf("Read %d bytes: %s\n", n, buf[:n])
 |---------------|-------------|
 | `Open` | Probe a LUN and return a `Drive` if it is a tape device |
 | `Drive.Read` | Read one record from current position into buffer |
-| `Drive.Write` | Write one record at current position |
+| `Drive.Write` | Write one record at current position (atomic at SCSI level) |
 | `Drive.WriteFilemarks` | Write N filemarks at current position |
 | `Drive.Rewind` | Reposition to beginning of tape |
 | `Drive.Position` | Query current logical block number (READ POSITION) |
@@ -92,6 +101,8 @@ fmt.Printf("Read %d bytes: %s\n", n, buf[:n])
 | `WithReadAhead` | Pre-fetch depth for sequential read throughput (0 = disabled) |
 | `WithSILI` | Suppress Incorrect Length Indicator on short reads |
 | `WithLogger` | Inject `slog.Logger` for diagnostics |
+| `WithTURRetryInterval` | Interval between TEST UNIT READY polls during Open() |
+| `WithTURRetryCount` | Maximum number of TUR retries during Open() |
 | `TapeError` | Error type with tape condition flags |
 | `ErrFilemark` | Sentinel: filemark encountered during read |
 | `ErrEOM` | Sentinel: end-of-medium reached |
@@ -122,4 +133,4 @@ if errors.Is(err, tape.ErrILI) {
 ## Requirements
 
 - Go 1.25 or later
-- [github.com/uiscsi/uiscsi](https://github.com/uiscsi/uiscsi) v1.3.1 or later
+- [github.com/uiscsi/uiscsi](https://github.com/uiscsi/uiscsi)
