@@ -84,14 +84,14 @@ func (e *TapeError) Unwrap() error {
 //	var te *tape.TapeError
 //	if errors.As(err, &te) && te.IsFilemark() { /* hit filemark */ }
 func (e *TapeError) Is(target error) bool {
-	switch {
-	case target == ErrFilemark:
+	switch target {
+	case ErrFilemark:
 		return e.Filemark
-	case target == ErrEOM:
+	case ErrEOM:
 		return e.EOM
-	case target == ErrBlankCheck:
+	case ErrBlankCheck:
 		return e.BlankCheck
-	case target == ErrILI:
+	case ErrILI:
 		return e.ILI
 	default:
 		return false

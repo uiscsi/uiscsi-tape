@@ -1,3 +1,5 @@
+// Package ssc provides SSC-3 (Sequential Access Storage Commands) CDB builders
+// and response parsers for SCSI tape drive operations.
 package ssc
 
 // ReadBlockLimitsCDB returns a READ BLOCK LIMITS CDB (opcode 0x05, 6 bytes).

@@ -232,15 +232,15 @@ func (p *readPipeline) submitRead(ctx context.Context, transferLen, allocLen uin
 	return pendingRead{sr: sr, buf: buf}, nil
 }
 
-func (p *readPipeline) consumeRead(ctx context.Context, pr pendingRead) (int, error) {
+func (p *readPipeline) consumeRead(_ context.Context, pr pendingRead) (int, error) {
 	n, readErr := io.ReadFull(pr.sr.Data, pr.buf)
 	if readErr == io.ErrUnexpectedEOF || readErr == io.EOF {
 		readErr = nil
 	}
-	io.Copy(io.Discard, pr.sr.Data) // drain remaining data; error irrelevant, status from sr.Wait()
+	_, _ = io.Copy(io.Discard, pr.sr.Data) // drain remaining data; error irrelevant, status from sr.Wait()
 
 	if readErr != nil {
-		pr.sr.Wait()
+		_, _, _ = pr.sr.Wait()
 		return n, readErr
 	}
 
@@ -257,9 +257,9 @@ func (p *readPipeline) consumeRead(ctx context.Context, pr pendingRead) (int, er
 	return n, nil
 }
 
-func (p *readPipeline) drainPending(pr pendingRead) {
+func (*readPipeline) drainPending(pr pendingRead) {
 	if pr.sr != nil && pr.sr.Data != nil {
-		io.Copy(io.Discard, pr.sr.Data) // drain remaining data; error irrelevant
-		pr.sr.Wait()
+		_, _ = io.Copy(io.Discard, pr.sr.Data) // drain remaining data; error irrelevant
+		_, _, _ = pr.sr.Wait()
 	}
 }

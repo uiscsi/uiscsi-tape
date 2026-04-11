@@ -129,7 +129,7 @@ func TestInterpretSense(t *testing.T) {
 			var te *TapeError
 			if !errors.As(err, &te) {
 				// For short sense or nil sense, we just check it's an error
-				if tt.senseData == nil || len(tt.senseData) < 18 {
+				if len(tt.senseData) < 18 {
 					return // ok, it's an error but not necessarily a full TapeError
 				}
 				t.Fatalf("error is not *TapeError: %v", err)
