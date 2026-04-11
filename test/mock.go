@@ -508,9 +508,15 @@ func (m *MockTapeDrive) handleRead(conn net.Conn, itt, cmdSN uint32, statSN *uin
 		if actualLen > readLen {
 			actualLen = readLen
 		}
+		readData := make([]byte, actualLen)
+		copy(readData, m.media[m.position:m.position+actualLen])
 		m.position += actualLen
 		m.mu.Unlock()
-		// SILI=false: return CHECK CONDITION with ILI sense and residue
+		// Send actual data first, then CHECK CONDITION with ILI sense and residue.
+		// Per SSC-3 Section 7.2, short reads still transfer the actual bytes read.
+		if len(readData) > 0 {
+			sendDataInNoStatus(conn, itt, readData)
+		}
 		residue := int(xferLen) - actualLen
 		sense := makeFixedSenseWithInfo(0x00, false, false, true, 0x00, 0x00, uint32(residue))
 		sendSCSIResponse(conn, itt, cmdSN, statSN, 0x02, sense)
@@ -520,12 +526,12 @@ func (m *MockTapeDrive) handleRead(conn net.Conn, itt, cmdSN uint32, statSN *uin
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Check if position is at a filemark. Consume it — remove from list
-	// so subsequent reads proceed to the next record. Real drives advance
-	// past the filemark on read.
-	for i, fmPos := range m.filemarks {
+	// Check if position is at a filemark. Real SSC drives advance the head
+	// past the filemark on read (SSC-3 Section 7.2) but do NOT remove the
+	// filemark — filemarks are persistent tape marks.
+	for _, fmPos := range m.filemarks {
 		if fmPos == m.position {
-			m.filemarks = append(m.filemarks[:i], m.filemarks[i+1:]...)
+			m.position = fmPos + 1 // advance past filemark
 			sense := makeFixedSense(0x00, true, false, false, 0x00, 0x01) // FILEMARK
 			sendSCSIResponse(conn, itt, cmdSN, statSN, 0x02, sense)
 			return
@@ -744,23 +750,14 @@ func (m *MockTapeDrive) spaceFilemarks(conn net.Conn, itt, cmdSN uint32, statSN 
 
 	if count > 0 {
 		// Forward: find the count-th filemark at or after current position.
-		// Remove all traversed filemarks so subsequent READs don't re-trigger them.
+		// Do NOT remove filemarks — they are persistent tape marks. Just
+		// advance the position past the target filemark (SSC-3 Section 8.3).
 		found := 0
-		consumed := make(map[int]bool)
 		for _, fmPos := range sorted {
 			if fmPos >= m.position {
 				found++
-				consumed[fmPos] = true
 				if found == int(count) {
-					m.position = fmPos // position past filemark logically
-					// Remove consumed filemarks from m.filemarks
-					remaining := m.filemarks[:0]
-					for _, fm := range m.filemarks {
-						if !consumed[fm] {
-							remaining = append(remaining, fm)
-						}
-					}
-					m.filemarks = remaining
+					m.position = fmPos + 1 // position past filemark
 					sendSCSIResponse(conn, itt, cmdSN, statSN, 0x00, nil)
 					return
 				}
@@ -869,6 +866,24 @@ func sendSCSIResponse(conn net.Conn, itt, cmdSN uint32, statSN *uint32, status b
 	binary.BigEndian.PutUint32(resp[32:36], cmdSN+10) // MaxCmdSN
 
 	writePDU(conn, resp, dataSegment)
+}
+
+// sendDataInNoStatus sends a Data-In PDU with F-bit set but no S-bit (no status).
+// Used when data must be delivered before a separate SCSI Response (e.g., short reads).
+func sendDataInNoStatus(conn net.Conn, itt uint32, data []byte) {
+	var resp [48]byte
+	resp[0] = 0x25 // Data-In opcode
+	resp[1] = 0x80 // F-bit (final), no S-bit
+	// Data segment length
+	dsLen := uint32(len(data))
+	resp[5] = byte(dsLen >> 16)
+	resp[6] = byte(dsLen >> 8)
+	resp[7] = byte(dsLen)
+	binary.BigEndian.PutUint32(resp[16:20], itt)
+	// DataSN = 0
+	binary.BigEndian.PutUint32(resp[36:40], 0)
+
+	writePDU(conn, resp, data)
 }
 
 // sendDataIn sends a Data-In PDU with F+S bits set (final data with status).
