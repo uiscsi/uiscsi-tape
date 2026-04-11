@@ -122,4 +122,4 @@ if errors.Is(err, tape.ErrILI) {
 ## Requirements
 
 - Go 1.25 or later
-- [github.com/uiscsi/uiscsi](https://github.com/uiscsi/uiscsi) v1.3.0 or later
+- [github.com/uiscsi/uiscsi](https://github.com/uiscsi/uiscsi) v1.3.1 or later
