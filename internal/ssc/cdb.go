@@ -102,6 +102,21 @@ func ModeSense6PageCDB(pageCode uint8, allocLen uint8) []byte {
 	return cdb
 }
 
+// SpaceCDB returns a SPACE(6) CDB (opcode 0x11, 6 bytes).
+// code is the space code: 0=blocks, 1=filemarks, 2=sequential filemarks,
+// 3=end-of-data, 4=setmarks, 5=sequential setmarks.
+// count is signed 24-bit: positive = forward, negative = backward.
+// SSC-3 Section 7.8.
+func SpaceCDB(code uint8, count int32) []byte {
+	cdb := make([]byte, 6)
+	cdb[0] = 0x11
+	cdb[1] = code & 0x07
+	cdb[2] = byte(count >> 16)
+	cdb[3] = byte(count >> 8)
+	cdb[4] = byte(count)
+	return cdb
+}
+
 // RewindCDB returns a REWIND CDB (opcode 0x01, 6 bytes).
 // If immed is true, the IMMED bit (byte 1 bit 0) is set for immediate return.
 // SSC-3 Section 7.5.

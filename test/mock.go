@@ -14,6 +14,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"sort"
 	"strings"
 	"sync"
 )
@@ -32,10 +33,23 @@ type MockTapeDrive struct {
 	eomThreshold int    // position at which EOM early warning triggers
 	blockSize    int    // configured block size (0 = variable, >0 = fixed); set by MODE SELECT
 
+	errorQueues     map[uint8][]injectedError     // keyed by CDB opcode
+	shortReadQueues map[uint8][]injectedShortRead // keyed by CDB opcode
+
 	listener net.Listener
 	addr     string
 	done     chan struct{}
 	wg       sync.WaitGroup
+}
+
+type injectedError struct {
+	senseKey uint8
+	asc      uint8
+	ascq     uint8
+}
+
+type injectedShortRead struct {
+	actualLen int
 }
 
 // NewMockTapeDrive creates a new mock tape drive with the given media capacity
@@ -104,6 +118,66 @@ func (m *MockTapeDrive) Close() {
 	close(m.done)
 	m.listener.Close()
 	m.wg.Wait()
+}
+
+// InjectError queues a one-shot sense error consumed on the next SCSI
+// command matching the given opcode. Multiple calls for the same opcode
+// queue errors in FIFO order.
+func (m *MockTapeDrive) InjectError(opcode, senseKey, asc, ascq uint8) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.errorQueues == nil {
+		m.errorQueues = make(map[uint8][]injectedError)
+	}
+	m.errorQueues[opcode] = append(m.errorQueues[opcode], injectedError{senseKey, asc, ascq})
+}
+
+// InjectFilemark places a filemark at the given byte position in the mock
+// tape media. The filemark is consumed by READ (like existing filemarks)
+// and navigated by SPACE.
+func (m *MockTapeDrive) InjectFilemark(position int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.filemarks = append(m.filemarks, position)
+}
+
+// InjectShortRead queues a one-shot short read for the given opcode.
+// The next READ matching that opcode returns only actualLen bytes with
+// ILI sense (if SILI=false) including the residue in INFORMATION.
+func (m *MockTapeDrive) InjectShortRead(opcode uint8, actualLen int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.shortReadQueues == nil {
+		m.shortReadQueues = make(map[uint8][]injectedShortRead)
+	}
+	m.shortReadQueues[opcode] = append(m.shortReadQueues[opcode], injectedShortRead{actualLen})
+}
+
+// consumeInjectedError pops the first queued error for the given opcode.
+// Returns the error and true if one was queued, or zero value and false.
+func (m *MockTapeDrive) consumeInjectedError(opcode uint8) (injectedError, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	q := m.errorQueues[opcode]
+	if len(q) == 0 {
+		return injectedError{}, false
+	}
+	e := q[0]
+	m.errorQueues[opcode] = q[1:]
+	return e, true
+}
+
+// consumeInjectedShortRead pops the first queued short read for the given opcode.
+func (m *MockTapeDrive) consumeInjectedShortRead(opcode uint8) (injectedShortRead, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	q := m.shortReadQueues[opcode]
+	if len(q) == 0 {
+		return injectedShortRead{}, false
+	}
+	e := q[0]
+	m.shortReadQueues[opcode] = q[1:]
+	return e, true
 }
 
 func (m *MockTapeDrive) acceptLoop() {
@@ -237,6 +311,14 @@ func (m *MockTapeDrive) handleSCSICommand(conn net.Conn, bhs [48]byte, data []by
 	copy(cdb[:], bhs[32:48])
 
 	cdbOpcode := cdb[0]
+
+	// Check for injected errors before normal dispatch.
+	if injErr, ok := m.consumeInjectedError(cdbOpcode); ok {
+		sense := makeFixedSense(injErr.senseKey, false, false, false, injErr.asc, injErr.ascq)
+		sendSCSIResponse(conn, itt, cmdSN, statSN, 0x02, sense)
+		return
+	}
+
 	switch cdbOpcode {
 	case 0x00: // TEST UNIT READY
 		m.handleTUR(conn, itt, cmdSN, statSN)
@@ -258,6 +340,8 @@ func (m *MockTapeDrive) handleSCSICommand(conn net.Conn, bhs [48]byte, data []by
 		m.handleModeSense6(conn, itt, cmdSN, statSN)
 	case 0x15: // MODE SELECT(6)
 		m.handleModeSelect6(conn, itt, cmdSN, statSN, data)
+	case 0x11: // SPACE(6)
+		m.handleSPACE(conn, itt, cmdSN, statSN, cdb)
 	default:
 		// Unknown CDB -- send CHECK CONDITION with ILLEGAL REQUEST
 		sendSCSIResponse(conn, itt, cmdSN, statSN, 0x02, nil) // CHECK CONDITION
@@ -411,6 +495,28 @@ func (m *MockTapeDrive) handleRead(conn net.Conn, itt, cmdSN uint32, statSN *uin
 		xferLen *= uint32(bs)
 	}
 
+	// Check for injected short read before acquiring the lock.
+	// consumeInjectedShortRead has its own lock.
+	if inj, ok := m.consumeInjectedShortRead(cdb[0]); ok {
+		m.mu.Lock()
+		actualLen := inj.actualLen
+		available := m.written - m.position
+		if actualLen > available {
+			actualLen = available
+		}
+		readLen := int(xferLen)
+		if actualLen > readLen {
+			actualLen = readLen
+		}
+		m.position += actualLen
+		m.mu.Unlock()
+		// SILI=false: return CHECK CONDITION with ILI sense and residue
+		residue := int(xferLen) - actualLen
+		sense := makeFixedSenseWithInfo(0x00, false, false, true, 0x00, 0x00, uint32(residue))
+		sendSCSIResponse(conn, itt, cmdSN, statSN, 0x02, sense)
+		return
+	}
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -555,6 +661,123 @@ func makeFixedSense(senseKey uint8, filemark, eom, ili bool, asc, ascq uint8) []
 	sense[12] = asc
 	sense[13] = ascq
 	return sense
+}
+
+// makeFixedSenseWithInfo builds an 18-byte fixed-format sense data block
+// with the VALID bit set and the INFORMATION field populated.
+// Bytes 3-6 contain the 32-bit big-endian information value.
+func makeFixedSenseWithInfo(senseKey uint8, filemark, eom, ili bool, asc, ascq uint8, information uint32) []byte {
+	sense := makeFixedSense(senseKey, filemark, eom, ili, asc, ascq)
+	sense[0] |= 0x80 // Set VALID bit
+	binary.BigEndian.PutUint32(sense[3:7], information)
+	return sense
+}
+
+// handleSPACE processes a SPACE(6) command (opcode 0x11).
+// Supports space codes: 0=blocks, 1=filemarks, 2=sequential filemarks,
+// 3=end-of-data. Setmarks (4, 5) return ILLEGAL REQUEST.
+func (m *MockTapeDrive) handleSPACE(conn net.Conn, itt, cmdSN uint32, statSN *uint32, cdb [16]byte) {
+	code := cdb[1] & 0x07
+	// 24-bit signed count from bytes 2-4
+	raw := uint32(cdb[2])<<16 | uint32(cdb[3])<<8 | uint32(cdb[4])
+	count := int32(raw)
+	if raw&0x800000 != 0 { // sign extend from 24-bit
+		count = int32(raw | 0xFF000000)
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	switch code {
+	case 0x00: // Blocks
+		m.spaceBlocks(conn, itt, cmdSN, statSN, count)
+	case 0x01: // Filemarks
+		m.spaceFilemarks(conn, itt, cmdSN, statSN, count)
+	case 0x02: // Sequential filemarks (same as filemarks for mock)
+		m.spaceFilemarks(conn, itt, cmdSN, statSN, count)
+	case 0x03: // End-of-data
+		m.position = m.written
+		sendSCSIResponse(conn, itt, cmdSN, statSN, 0x00, nil)
+	default: // Setmarks (0x04, 0x05) -- not supported
+		sense := makeFixedSense(0x05, false, false, false, 0x20, 0x00) // ILLEGAL REQUEST / INVALID COMMAND OPERATION CODE
+		sendSCSIResponse(conn, itt, cmdSN, statSN, 0x02, sense)
+	}
+}
+
+// spaceBlocks advances or retreats by count blocks. Must be called with m.mu held.
+func (m *MockTapeDrive) spaceBlocks(conn net.Conn, itt, cmdSN uint32, statSN *uint32, count int32) {
+	step := m.blockSize
+	if step == 0 {
+		step = 1 // variable mode: each byte is a position unit
+	}
+
+	newPos := m.position + int(count)*step
+
+	if newPos < 0 {
+		m.position = 0
+		sense := makeFixedSense(0x00, false, false, false, 0x00, 0x04) // NO SENSE / BEGINNING OF PARTITION/MEDIUM DETECTED
+		sendSCSIResponse(conn, itt, cmdSN, statSN, 0x02, sense)
+		return
+	}
+
+	if count > 0 && newPos >= m.written {
+		m.position = m.written
+		sense := makeFixedSense(0x08, false, false, false, 0x00, 0x05) // BLANK CHECK / END-OF-DATA DETECTED
+		sendSCSIResponse(conn, itt, cmdSN, statSN, 0x02, sense)
+		return
+	}
+
+	m.position = newPos
+	sendSCSIResponse(conn, itt, cmdSN, statSN, 0x00, nil)
+}
+
+// spaceFilemarks advances or retreats by count filemarks. Must be called with m.mu held.
+func (m *MockTapeDrive) spaceFilemarks(conn net.Conn, itt, cmdSN uint32, statSN *uint32, count int32) {
+	if count == 0 {
+		sendSCSIResponse(conn, itt, cmdSN, statSN, 0x00, nil)
+		return
+	}
+
+	sorted := make([]int, len(m.filemarks))
+	copy(sorted, m.filemarks)
+	sort.Ints(sorted)
+
+	if count > 0 {
+		// Forward: find the count-th filemark at or after current position
+		found := 0
+		for _, fmPos := range sorted {
+			if fmPos >= m.position {
+				found++
+				if found == int(count) {
+					m.position = fmPos // position at filemark (past it logically)
+					sendSCSIResponse(conn, itt, cmdSN, statSN, 0x00, nil)
+					return
+				}
+			}
+		}
+		// Not enough filemarks -- position at end-of-data, return BLANK CHECK
+		m.position = m.written
+		sense := makeFixedSense(0x08, false, false, false, 0x00, 0x05) // BLANK CHECK / END-OF-DATA
+		sendSCSIResponse(conn, itt, cmdSN, statSN, 0x02, sense)
+	} else {
+		// Backward: find the abs(count)-th filemark before current position
+		absCount := int(-count)
+		found := 0
+		for i := len(sorted) - 1; i >= 0; i-- {
+			if sorted[i] < m.position {
+				found++
+				if found == absCount {
+					m.position = sorted[i]
+					sendSCSIResponse(conn, itt, cmdSN, statSN, 0x00, nil)
+					return
+				}
+			}
+		}
+		// Not enough filemarks backward -- clamp to BOT
+		m.position = 0
+		sense := makeFixedSense(0x00, false, false, false, 0x00, 0x04) // BEGINNING OF PARTITION
+		sendSCSIResponse(conn, itt, cmdSN, statSN, 0x02, sense)
+	}
 }
 
 // --- iSCSI PDU framing helpers ---
