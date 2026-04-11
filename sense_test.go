@@ -171,6 +171,48 @@ func TestInterpretSense(t *testing.T) {
 	}
 }
 
+// TestDescriptorFormatFilemark verifies that descriptor-format sense data
+// (response code 0x72) with a Stream Commands descriptor (type 0x04)
+// having the filemark bit set results in TapeError.Filemark == true.
+// This tests the end-to-end path: parseDescriptors -> SenseData.Filemark ->
+// SenseInfo.Filemark -> TapeError.Filemark.
+func TestDescriptorFormatFilemark(t *testing.T) {
+	// Build descriptor-format sense with filemark set in Stream Commands descriptor.
+	// Stream commands descriptor: type=0x04, len=0x02, reserved=0x00, flags=0x80 (FM)
+	streamDesc := []byte{
+		0x04, 0x02, // type=Stream Commands, descLen=2
+		0x00,       // reserved
+		0x80,       // Filemark=1, EOM=0, ILI=0
+	}
+	senseData := []byte{
+		0x72,                  // response code = current, descriptor format
+		0x00,                  // sense key = NO SENSE
+		0x00, 0x01,            // ASC=0x00 ASCQ=0x01 (Filemark detected)
+		0x00, 0x00, 0x00,      // reserved
+		byte(len(streamDesc)), // additional sense length
+	}
+	senseData = append(senseData, streamDesc...)
+
+	err := interpretSense(0x02, senseData)
+	if err == nil {
+		t.Fatal("interpretSense returned nil, want TapeError with Filemark=true")
+	}
+
+	var te *TapeError
+	if !errors.As(err, &te) {
+		t.Fatalf("error is not *TapeError: %v", err)
+	}
+	if !te.Filemark {
+		t.Errorf("TapeError.Filemark = false, want true for descriptor-format sense with filemark descriptor")
+	}
+	if te.EOM {
+		t.Errorf("TapeError.EOM = true, want false")
+	}
+	if te.ILI {
+		t.Errorf("TapeError.ILI = true, want false")
+	}
+}
+
 // makeSense builds an 18-byte fixed-format sense data blob.
 func makeSense(responseCode, byte2, asc, ascq byte) []byte {
 	sense := make([]byte, 18)
