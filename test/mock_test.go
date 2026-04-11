@@ -14,7 +14,7 @@ func TestMockTUR(t *testing.T) {
 	_, sess := SetupMock(t)
 
 	ctx := context.Background()
-	if err := sess.TestUnitReady(ctx, 0); err != nil {
+	if err := sess.SCSI().TestUnitReady(ctx, 0); err != nil {
 		t.Fatalf("TestUnitReady: %v", err)
 	}
 }
@@ -23,7 +23,7 @@ func TestMockInquiry(t *testing.T) {
 	_, sess := SetupMock(t)
 
 	ctx := context.Background()
-	inq, err := sess.Inquiry(ctx, 0)
+	inq, err := sess.SCSI().Inquiry(ctx, 0)
 	if err != nil {
 		t.Fatalf("Inquiry: %v", err)
 	}
@@ -43,7 +43,7 @@ func TestMockReadBlockLimits(t *testing.T) {
 	_, sess := SetupMock(t)
 
 	ctx := context.Background()
-	result, err := sess.Execute(ctx, 0, ssc.ReadBlockLimitsCDB(), uiscsi.WithDataIn(6))
+	result, err := sess.Raw().Execute(ctx, 0, ssc.ReadBlockLimitsCDB(), uiscsi.WithDataIn(6))
 	if err != nil {
 		t.Fatalf("Execute READ BLOCK LIMITS: %v", err)
 	}
@@ -84,7 +84,7 @@ func TestMockWrite(t *testing.T) {
 	data := []byte("hello tape world!")
 	cdb := ssc.WriteCDB(false, uint32(len(data)))
 
-	result, err := sess.Execute(ctx, 0, cdb, uiscsi.WithDataOut(bytes.NewReader(data), uint32(len(data))))
+	result, err := sess.Raw().Execute(ctx, 0, cdb, uiscsi.WithDataOut(bytes.NewReader(data), uint32(len(data))))
 	if err != nil {
 		t.Fatalf("Execute WRITE: %v", err)
 	}
@@ -104,14 +104,14 @@ func TestMockRead(t *testing.T) {
 	writeCDB := ssc.WriteCDB(false, uint32(len(data)))
 
 	// Write data
-	_, err := sess.Execute(ctx, 0, writeCDB, uiscsi.WithDataOut(bytes.NewReader(data), uint32(len(data))))
+	_, err := sess.Raw().Execute(ctx, 0, writeCDB, uiscsi.WithDataOut(bytes.NewReader(data), uint32(len(data))))
 	if err != nil {
 		t.Fatalf("Execute WRITE: %v", err)
 	}
 
 	// Rewind
 	rewindCDB := ssc.RewindCDB(false)
-	_, err = sess.Execute(ctx, 0, rewindCDB)
+	_, err = sess.Raw().Execute(ctx, 0, rewindCDB)
 	if err != nil {
 		t.Fatalf("Execute REWIND: %v", err)
 	}
@@ -121,7 +121,7 @@ func TestMockRead(t *testing.T) {
 
 	// Read back
 	readCDB := ssc.ReadCDB(false, false, uint32(len(data)))
-	result, err := sess.Execute(ctx, 0, readCDB, uiscsi.WithDataIn(uint32(len(data))))
+	result, err := sess.Raw().Execute(ctx, 0, readCDB, uiscsi.WithDataIn(uint32(len(data))))
 	if err != nil {
 		t.Fatalf("Execute READ: %v", err)
 	}
@@ -141,7 +141,7 @@ func TestMockWriteFilemarks(t *testing.T) {
 	// Write some data
 	data := []byte("before filemark")
 	writeCDB := ssc.WriteCDB(false, uint32(len(data)))
-	_, err := sess.Execute(ctx, 0, writeCDB, uiscsi.WithDataOut(bytes.NewReader(data), uint32(len(data))))
+	_, err := sess.Raw().Execute(ctx, 0, writeCDB, uiscsi.WithDataOut(bytes.NewReader(data), uint32(len(data))))
 	if err != nil {
 		t.Fatalf("Execute WRITE: %v", err)
 	}
@@ -150,7 +150,7 @@ func TestMockWriteFilemarks(t *testing.T) {
 
 	// Write a filemark
 	fmCDB := ssc.WriteFilemarksCDB(1)
-	result, err := sess.Execute(ctx, 0, fmCDB)
+	result, err := sess.Raw().Execute(ctx, 0, fmCDB)
 	if err != nil {
 		t.Fatalf("Execute WRITE FILEMARKS: %v", err)
 	}
@@ -160,21 +160,21 @@ func TestMockWriteFilemarks(t *testing.T) {
 
 	// Rewind and seek to filemark position
 	rewindCDB := ssc.RewindCDB(false)
-	_, err = sess.Execute(ctx, 0, rewindCDB)
+	_, err = sess.Raw().Execute(ctx, 0, rewindCDB)
 	if err != nil {
 		t.Fatalf("Execute REWIND: %v", err)
 	}
 
 	// Read past the data to reach the filemark position
 	skipCDB := ssc.ReadCDB(false, false, uint32(fmPos))
-	_, err = sess.Execute(ctx, 0, skipCDB, uiscsi.WithDataIn(uint32(fmPos)))
+	_, err = sess.Raw().Execute(ctx, 0, skipCDB, uiscsi.WithDataIn(uint32(fmPos)))
 	if err != nil {
 		t.Fatalf("Execute READ (skip): %v", err)
 	}
 
 	// Now read at filemark position -- should get CHECK CONDITION with filemark sense
 	readCDB := ssc.ReadCDB(false, false, 1)
-	result, err = sess.Execute(ctx, 0, readCDB, uiscsi.WithDataIn(1))
+	result, err = sess.Raw().Execute(ctx, 0, readCDB, uiscsi.WithDataIn(1))
 	if err != nil {
 		t.Fatalf("Execute READ at filemark: %v", err)
 	}
@@ -198,7 +198,7 @@ func TestMockRewind(t *testing.T) {
 	data := []byte("some data")
 	writeCDB := ssc.WriteCDB(false, uint32(len(data)))
 
-	_, err := sess.Execute(ctx, 0, writeCDB, uiscsi.WithDataOut(bytes.NewReader(data), uint32(len(data))))
+	_, err := sess.Raw().Execute(ctx, 0, writeCDB, uiscsi.WithDataOut(bytes.NewReader(data), uint32(len(data))))
 	if err != nil {
 		t.Fatalf("Execute WRITE: %v", err)
 	}
@@ -208,7 +208,7 @@ func TestMockRewind(t *testing.T) {
 	}
 
 	rewindCDB := ssc.RewindCDB(false)
-	result, err := sess.Execute(ctx, 0, rewindCDB)
+	result, err := sess.Raw().Execute(ctx, 0, rewindCDB)
 	if err != nil {
 		t.Fatalf("Execute REWIND: %v", err)
 	}
@@ -234,7 +234,7 @@ func TestMockEOM(t *testing.T) {
 		data[i] = byte(i & 0xFF)
 	}
 	writeCDB := ssc.WriteCDB(false, uint32(len(data)))
-	result, err := sess.Execute(ctx, 0, writeCDB, uiscsi.WithDataOut(bytes.NewReader(data), uint32(len(data))))
+	result, err := sess.Raw().Execute(ctx, 0, writeCDB, uiscsi.WithDataOut(bytes.NewReader(data), uint32(len(data))))
 	if err != nil {
 		t.Fatalf("Execute WRITE (EOM): %v", err)
 	}
@@ -264,7 +264,7 @@ func TestMockReadPosition(t *testing.T) {
 	ctx := context.Background()
 
 	// Position at BOT should be 0 with BOP=true.
-	result, err := sess.Execute(ctx, 0, []byte{0x34, 0, 0, 0, 0, 0, 0, 0, 0, 0}, uiscsi.WithDataIn(20))
+	result, err := sess.Raw().Execute(ctx, 0, []byte{0x34, 0, 0, 0, 0, 0, 0, 0, 0, 0}, uiscsi.WithDataIn(20))
 	if err != nil {
 		t.Fatalf("Execute READ POSITION: %v", err)
 	}
@@ -281,13 +281,13 @@ func TestMockReadPosition(t *testing.T) {
 	// Write some data to advance position.
 	data := make([]byte, 4096)
 	cdb := []byte{0x0A, 0x00, 0x00, 0x10, 0x00, 0x00} // WRITE(6), 4096 bytes
-	_, err = sess.Execute(ctx, 0, cdb, uiscsi.WithDataOut(bytes.NewReader(data), 4096))
+	_, err = sess.Raw().Execute(ctx, 0, cdb, uiscsi.WithDataOut(bytes.NewReader(data), 4096))
 	if err != nil {
 		t.Fatalf("Execute WRITE: %v", err)
 	}
 
 	// Position should be non-zero now.
-	result, err = sess.Execute(ctx, 0, []byte{0x34, 0, 0, 0, 0, 0, 0, 0, 0, 0}, uiscsi.WithDataIn(20))
+	result, err = sess.Raw().Execute(ctx, 0, []byte{0x34, 0, 0, 0, 0, 0, 0, 0, 0, 0}, uiscsi.WithDataIn(20))
 	if err != nil {
 		t.Fatalf("Execute READ POSITION after write: %v", err)
 	}
@@ -300,12 +300,12 @@ func TestMockReadPosition(t *testing.T) {
 	}
 
 	// Rewind and check position again.
-	_, err = sess.Execute(ctx, 0, []byte{0x01, 0, 0, 0, 0, 0})
+	_, err = sess.Raw().Execute(ctx, 0, []byte{0x01, 0, 0, 0, 0, 0})
 	if err != nil {
 		t.Fatalf("Execute REWIND: %v", err)
 	}
 
-	result, err = sess.Execute(ctx, 0, []byte{0x34, 0, 0, 0, 0, 0, 0, 0, 0, 0}, uiscsi.WithDataIn(20))
+	result, err = sess.Raw().Execute(ctx, 0, []byte{0x34, 0, 0, 0, 0, 0, 0, 0, 0, 0}, uiscsi.WithDataIn(20))
 	if err != nil {
 		t.Fatalf("Execute READ POSITION after rewind: %v", err)
 	}
