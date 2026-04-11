@@ -35,6 +35,7 @@ type TapeError struct {
 	SenseKey   uint8
 	ASC        uint8
 	ASCQ       uint8
+	Position   uint64 // bytes consumed before error (from INFORMATION field); 0 if unavailable
 	Cause      error
 }
 
@@ -52,6 +53,10 @@ func (e *TapeError) Error() string {
 	}
 	if e.BlankCheck {
 		parts = append(parts, "blank check")
+	}
+
+	if e.Position > 0 {
+		parts = append(parts, fmt.Sprintf("pos=%d", e.Position))
 	}
 
 	// Always include sense key and ASC/ASCQ for diagnostics.

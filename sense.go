@@ -27,6 +27,11 @@ func interpretSense(status uint8, senseData []byte) error {
 		}
 	}
 
+	var pos uint64
+	if si.InformationValid {
+		pos = si.Information
+	}
+
 	return &TapeError{
 		Filemark:   si.Filemark,
 		EOM:        si.EOM,
@@ -35,5 +40,6 @@ func interpretSense(status uint8, senseData []byte) error {
 		SenseKey:   si.Key,
 		ASC:        si.ASC,
 		ASCQ:       si.ASCQ,
+		Position:   pos,
 	}
 }
