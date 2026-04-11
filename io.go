@@ -163,6 +163,20 @@ func (d *Drive) stopPipeline() {
 // The data is still written — the caller should stop writing soon.
 // A hard end-of-medium (volume overflow) returns an error matching
 // neither ErrEOM nor nil.
+//
+// # Write Atomicity
+//
+// Write is not idempotent. If Write returns a transport error
+// (*[uiscsi.TransportError]), the number of bytes that reached the tape
+// head is unknown — the drive may have written a partial record and
+// advanced its position by an indeterminate amount. Do not retry Write
+// with the same data after a transport error. Instead, call
+// [Drive.Position] to determine the current block address and rewind
+// or space as needed before writing again.
+//
+// A SCSI error (*[TapeError]) indicates the drive responded; when
+// [TapeError.Position] is valid, it indicates the number of blocks
+// actually written.
 func (d *Drive) Write(ctx context.Context, data []byte) error {
 	d.stopPipeline()
 	log := d.log()
