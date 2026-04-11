@@ -1,15 +1,20 @@
 package tape
 
-import "log/slog"
+import (
+	"log/slog"
+	"time"
+)
 
 // Option configures Drive behavior.
 type Option func(*driveConfig)
 
 type driveConfig struct {
-	logger     *slog.Logger
-	blockSize  uint32
-	sili       bool
-	readAhead  int // pipeline depth (0 = disabled)
+	logger           *slog.Logger
+	blockSize        uint32
+	sili             bool
+	readAhead        int           // pipeline depth (0 = disabled)
+	turRetryInterval time.Duration // 0 means use default (1s)
+	turMaxRetries    int           // 0 means use default (30)
 }
 
 // WithLogger sets a structured logger for drive operations.
@@ -55,5 +60,28 @@ func WithReadAhead(depth int) Option {
 func WithSILI(enabled bool) Option {
 	return func(c *driveConfig) {
 		c.sili = enabled
+	}
+}
+
+// WithTURRetryInterval sets the polling interval between TEST UNIT READY
+// retries during [Open]. Tape drives report NOT READY and UNIT ATTENTION
+// for several seconds while loading media; this interval controls how
+// often the drive is polled. Default is 1 second. A zero value uses the
+// default.
+//
+// DDS-4 drives (~6 MB/s) may take 15-30 seconds to load; LTO drives are
+// typically faster. Reduce the interval for faster detection in tests.
+func WithTURRetryInterval(d time.Duration) Option {
+	return func(c *driveConfig) {
+		c.turRetryInterval = d
+	}
+}
+
+// WithTURMaxRetries sets the maximum number of TEST UNIT READY retries
+// during [Open]. If the drive is still not ready after this many attempts,
+// Open returns an error. Default is 30. A zero value uses the default.
+func WithTURMaxRetries(n int) Option {
+	return func(c *driveConfig) {
+		c.turMaxRetries = n
 	}
 }

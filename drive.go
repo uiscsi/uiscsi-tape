@@ -45,9 +45,21 @@ func (d *Drive) Limits() BlockLimits { return d.limits }
 // pollUnitReady sends TEST UNIT READY in a loop, retrying on UNIT ATTENTION
 // (sense key 0x06) and NOT READY (sense key 0x02). These are normal after
 // media insertion — the drive needs time to load the tape. Returns nil once
-// the drive reports GOOD, or the last error after turMaxRetries attempts.
-func pollUnitReady(ctx context.Context, session *uiscsi.Session, lun uint64, log *slog.Logger) error {
-	for attempt := range turMaxRetries {
+// the drive reports GOOD, or the last error after the configured max retries.
+//
+// The retry interval and max retries are taken from cfg; zero values resolve
+// to the package-level defaults (1s interval, 30 retries).
+func pollUnitReady(ctx context.Context, session *uiscsi.Session, lun uint64, cfg driveConfig, log *slog.Logger) error {
+	interval := cfg.turRetryInterval
+	if interval == 0 {
+		interval = turRetryInterval
+	}
+	maxRetries := cfg.turMaxRetries
+	if maxRetries == 0 {
+		maxRetries = turMaxRetries
+	}
+
+	for attempt := range maxRetries {
 		err := session.SCSI().TestUnitReady(ctx, lun)
 		if err == nil {
 			return nil
@@ -64,7 +76,7 @@ func pollUnitReady(ctx context.Context, session *uiscsi.Session, lun uint64, log
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
-			case <-time.After(turRetryInterval):
+			case <-time.After(interval):
 				continue
 			}
 		}
@@ -72,7 +84,7 @@ func pollUnitReady(ctx context.Context, session *uiscsi.Session, lun uint64, log
 		// Non-retriable error.
 		return err
 	}
-	return fmt.Errorf("tape: drive not ready after %d attempts", turMaxRetries)
+	return fmt.Errorf("tape: drive not ready after %d attempts", maxRetries)
 }
 
 // Open probes an iSCSI LUN and returns a Drive if it is a tape device.
@@ -95,7 +107,7 @@ func Open(ctx context.Context, session *uiscsi.Session, lun uint64, opts ...Opti
 	// may have changed") and/or NOT READY ("becoming ready") for several
 	// seconds while the tape loads. This is normal SSC behavior.
 	log.Debug("tape: probe step 1 -- TEST UNIT READY (polling)", "lun", lun)
-	if err := pollUnitReady(ctx, session, lun, log); err != nil {
+	if err := pollUnitReady(ctx, session, lun, cfg, log); err != nil {
 		return nil, fmt.Errorf("tape: drive not ready: %w", err)
 	}
 
