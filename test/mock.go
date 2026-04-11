@@ -743,13 +743,24 @@ func (m *MockTapeDrive) spaceFilemarks(conn net.Conn, itt, cmdSN uint32, statSN 
 	sort.Ints(sorted)
 
 	if count > 0 {
-		// Forward: find the count-th filemark at or after current position
+		// Forward: find the count-th filemark at or after current position.
+		// Remove all traversed filemarks so subsequent READs don't re-trigger them.
 		found := 0
+		consumed := make(map[int]bool)
 		for _, fmPos := range sorted {
 			if fmPos >= m.position {
 				found++
+				consumed[fmPos] = true
 				if found == int(count) {
-					m.position = fmPos // position at filemark (past it logically)
+					m.position = fmPos // position past filemark logically
+					// Remove consumed filemarks from m.filemarks
+					remaining := m.filemarks[:0]
+					for _, fm := range m.filemarks {
+						if !consumed[fm] {
+							remaining = append(remaining, fm)
+						}
+					}
+					m.filemarks = remaining
 					sendSCSIResponse(conn, itt, cmdSN, statSN, 0x00, nil)
 					return
 				}
