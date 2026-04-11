@@ -240,7 +240,7 @@ func TestWriteAfterFilemark(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Verify total written
+	// Verify total written (1024 data + filemark marker + 1024 data = 2048 bytes)
 	if w := mock.Written(); w != 2048 {
 		t.Errorf("Written = %d, want 2048", w)
 	}

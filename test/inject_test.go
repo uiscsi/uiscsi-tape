@@ -290,9 +290,9 @@ func TestMockSPACE_Filemarks(t *testing.T) {
 		t.Fatalf("SPACE status = 0x%02X, want 0x00", result.Status)
 	}
 
-	// Position should be just past the first filemark
+	// Position should be at the first filemark position (SPACE consumes the
+	// filemark from the list so the next READ sees data at that position).
 	got := mock.Position()
-	// The filemark is at fm1Pos; position should be fm1Pos (past it)
 	if got != fm1Pos {
 		t.Errorf("position after SPACE(filemarks, 1) = %d, want %d", got, fm1Pos)
 	}

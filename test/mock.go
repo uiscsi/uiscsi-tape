@@ -526,12 +526,14 @@ func (m *MockTapeDrive) handleRead(conn net.Conn, itt, cmdSN uint32, statSN *uin
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Check if position is at a filemark. Real SSC drives advance the head
-	// past the filemark on read (SSC-3 Section 7.2) but do NOT remove the
-	// filemark — filemarks are persistent tape marks.
-	for _, fmPos := range m.filemarks {
+	// Check if position is at a filemark. The mock removes consumed filemarks
+	// from the list so the next READ at the same position sees data, not the
+	// filemark again. This is a simplification — real drives use separate
+	// data and filemark tracking, but for a test mock sharing the same
+	// position space, consumption prevents infinite re-triggering.
+	for i, fmPos := range m.filemarks {
 		if fmPos == m.position {
-			m.position = fmPos + 1 // advance past filemark
+			m.filemarks = append(m.filemarks[:i], m.filemarks[i+1:]...)
 			sense := makeFixedSense(0x00, true, false, false, 0x00, 0x01) // FILEMARK
 			sendSCSIResponse(conn, itt, cmdSN, statSN, 0x02, sense)
 			return
@@ -750,14 +752,22 @@ func (m *MockTapeDrive) spaceFilemarks(conn net.Conn, itt, cmdSN uint32, statSN 
 
 	if count > 0 {
 		// Forward: find the count-th filemark at or after current position.
-		// Do NOT remove filemarks — they are persistent tape marks. Just
-		// advance the position past the target filemark (SSC-3 Section 8.3).
+		// Position lands ON the filemark position and consumes the filemark
+		// from the list so the next READ sees data (mock simplification —
+		// filemarks share the same position space as data).
 		found := 0
 		for _, fmPos := range sorted {
 			if fmPos >= m.position {
 				found++
 				if found == int(count) {
-					m.position = fmPos + 1 // position past filemark
+					m.position = fmPos
+					// Consume the filemark from the list
+					for i, f := range m.filemarks {
+						if f == fmPos {
+							m.filemarks = append(m.filemarks[:i], m.filemarks[i+1:]...)
+							break
+						}
+					}
 					sendSCSIResponse(conn, itt, cmdSN, statSN, 0x00, nil)
 					return
 				}
