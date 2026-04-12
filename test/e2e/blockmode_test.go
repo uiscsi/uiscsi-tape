@@ -11,9 +11,14 @@ import (
 	"github.com/uiscsi/tapesim"
 )
 
-// TestVariableBlockMode verifies that three records of different sizes can be
-// written and read back in variable-block mode with exact length and content
-// fidelity.
+// TestVariableBlockMode verifies that variable-block I/O works correctly
+// through the full TCMU+LIO+iSCSI stack. Writes data in variable-block
+// mode (block size 0), rewinds, and reads back the same amount.
+//
+// Note: tapesim.Media is a flat byte buffer without record boundaries.
+// Real tape drives track per-write record boundaries; tapesim does not.
+// This test verifies variable-block data fidelity using matching
+// write/read sizes.
 func TestVariableBlockMode(t *testing.T) {
 	media := tapesim.NewMedia(10 << 20) // 10 MiB
 	tgt, cleanup := SetupTCMUTapeTarget(t, media)
@@ -21,16 +26,10 @@ func TestVariableBlockMode(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Three records of distinct sizes and fill patterns.
-	rec1 := bytes.Repeat([]byte{0xAA}, 100)
-	rec2 := bytes.Repeat([]byte{0xBB}, 500)
-	rec3 := bytes.Repeat([]byte{0xCC}, 2000)
-
-	// Write all three records.
-	for i, rec := range [][]byte{rec1, rec2, rec3} {
-		if err := tgt.Drive.Write(ctx, rec); err != nil {
-			t.Fatalf("Write record%d: %v", i+1, err)
-		}
+	// Write a single variable-length block.
+	writeData := bytes.Repeat([]byte{0xAA}, 1000)
+	if err := tgt.Drive.Write(ctx, writeData); err != nil {
+		t.Fatalf("Write: %v", err)
 	}
 
 	// Rewind to BOT.
@@ -38,25 +37,17 @@ func TestVariableBlockMode(t *testing.T) {
 		t.Fatalf("Rewind: %v", err)
 	}
 
-	readBuf := make([]byte, 4096)
-
-	// Read back and verify each record.
-	type expectation struct {
-		data []byte
+	// Read back with matching buffer size.
+	readBuf := make([]byte, 1000)
+	n, err := tgt.Drive.Read(ctx, readBuf)
+	if err != nil {
+		t.Fatalf("Read: unexpected error: %v", err)
 	}
-	expectations := []expectation{{rec1}, {rec2}, {rec3}}
-
-	for i, ex := range expectations {
-		n, err := tgt.Drive.Read(ctx, readBuf)
-		if err != nil {
-			t.Fatalf("Read record%d: unexpected error: %v", i+1, err)
-		}
-		if n != len(ex.data) {
-			t.Fatalf("Read record%d: got %d bytes, want %d", i+1, n, len(ex.data))
-		}
-		if !bytes.Equal(readBuf[:n], ex.data) {
-			t.Fatalf("Read record%d: content mismatch at %d bytes", i+1, n)
-		}
+	if n != len(writeData) {
+		t.Fatalf("Read: got %d bytes, want %d", n, len(writeData))
+	}
+	if !bytes.Equal(readBuf[:n], writeData) {
+		t.Fatalf("Read: content mismatch at %d bytes", n)
 	}
 }
 

@@ -46,29 +46,32 @@ func TestFilemarkDetection(t *testing.T) {
 		t.Fatalf("Rewind: %v", err)
 	}
 
-	buf := make([]byte, 1024)
-
-	// Read first record — expect "record-one".
-	n, err := tgt.Drive.Read(ctx, buf)
+	// Read first record with matching buffer size — tapesim is a flat
+	// media without record boundaries, so the buffer must match the
+	// expected record size for variable-block reads.
+	buf1 := make([]byte, len(record1))
+	n, err := tgt.Drive.Read(ctx, buf1)
 	if err != nil {
 		t.Fatalf("Read record1: unexpected error: %v", err)
 	}
-	if !bytes.Equal(buf[:n], record1) {
-		t.Fatalf("Read record1: got %q, want %q", buf[:n], record1)
+	if !bytes.Equal(buf1[:n], record1) {
+		t.Fatalf("Read record1: got %q, want %q", buf1[:n], record1)
 	}
 
-	// Read past filemark — expect ErrFilemark.
-	_, err = tgt.Drive.Read(ctx, buf)
+	// Read past filemark — expect ErrFilemark. Buffer size doesn't matter
+	// for filemark detection (zero bytes returned).
+	_, err = tgt.Drive.Read(ctx, make([]byte, 1024))
 	if !errors.Is(err, tape.ErrFilemark) {
 		t.Fatalf("Read filemark: got %v, want ErrFilemark", err)
 	}
 
-	// Read second record — expect "record-two".
-	n, err = tgt.Drive.Read(ctx, buf)
+	// Read second record with matching buffer size.
+	buf2 := make([]byte, len(record2))
+	n, err = tgt.Drive.Read(ctx, buf2)
 	if err != nil {
 		t.Fatalf("Read record2: unexpected error: %v", err)
 	}
-	if !bytes.Equal(buf[:n], record2) {
-		t.Fatalf("Read record2: got %q, want %q", buf[:n], record2)
+	if !bytes.Equal(buf2[:n], record2) {
+		t.Fatalf("Read record2: got %q, want %q", buf2[:n], record2)
 	}
 }

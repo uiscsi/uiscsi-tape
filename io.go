@@ -73,9 +73,22 @@ func (d *Drive) readSync(ctx context.Context, buf []byte) (int, error) {
 		return n, fmt.Errorf("tape: read: %w", readErr)
 	}
 
-	status, senseData, waitErr := sr.Wait()
+	status, senseData, residual, underflow, waitErr := sr.WaitResidual()
 	if waitErr != nil {
 		return n, fmt.Errorf("tape: read: %w", waitErr)
+	}
+
+	// Adjust n using the iSCSI residual underflow count. For TCMU targets,
+	// the kernel always transfers the full allocation regardless of how many
+	// bytes the handler wrote. The iSCSI SCSI Response PDU carries the
+	// underflow residual (allocLen - actual), which is the reliable way to
+	// determine the actual record size.
+	if underflow && residual > 0 {
+		actual := int(allocLen) - int(residual)
+		if actual >= 0 && actual < n {
+			n = actual
+			log.Debug("tape: read adjusted via iSCSI underflow", "n", n, "residual", residual, "allocLen", allocLen)
+		}
 	}
 
 	if senseErr := interpretSense(status, senseData); senseErr != nil {
