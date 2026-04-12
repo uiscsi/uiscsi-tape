@@ -101,7 +101,7 @@ func SetupTCMUTapeTarget(t *testing.T, media *tapesim.Media) (*TCMUTapeTarget, f
 		},
 		DataSizes: tcmu.DataSizes{
 			VolumeSize: 1 << 30, // 1 GiB sentinel (variable-block tape ignores this)
-			BlockSize:  1,       // hw_block_size=1 required for variable-block tape
+			BlockSize:  512,     // hw_block_size for kernel block layer alignment; tape handler does variable-block I/O in userspace
 		},
 		DevReady:       tcmutarget.NewTapeDevReady(media),
 		ExternalFabric: true,
