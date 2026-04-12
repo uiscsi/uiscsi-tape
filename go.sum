@@ -4,11 +4,17 @@ github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZb
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/stretchr/testify v1.8.0 h1:pSgiaMZlXftHpm5L7V1+rVB+AZJydKsMxsQBIJw4PKk=
 github.com/stretchr/testify v1.8.0/go.mod h1:yNjHg4UonilssWZ8iaSj1OCr/vHnekPRkoO+kdMU+MU=
+github.com/uiscsi/go-tcmu v0.0.0-20260412192835-73d1926a82c5 h1:xnhMX+sl6ip55fP/XCLtSGzCRG0NtNJvCrLCk+gqT9U=
+github.com/uiscsi/go-tcmu v0.0.0-20260412192835-73d1926a82c5/go.mod h1:+cmC2TM9UhPtPakZ2MVLz/esyNH0ODmcDGblNwps2MU=
 github.com/uiscsi/tapesim v0.1.0 h1:KMAl0tvlMM3NvG/lXEZJXq1TSrw61456m9rMFvnwZzc=
 github.com/uiscsi/tapesim v0.1.0/go.mod h1:9YdKxLPMIX+D6ZkkQjK3r2Zi6io/ON9Ku5zLmnStDNU=
+github.com/uiscsi/tapesim-tcmu v0.0.0-20260412201535-beffa887be14 h1:QdV+uIkn2SBpI+q0NcnUwBbRtPUfMbwPAO2ChGsjcS4=
+github.com/uiscsi/tapesim-tcmu v0.0.0-20260412201535-beffa887be14/go.mod h1:JR6t1AO87eqn29fjzngWBOZtxNB0PjH1niZT+1jK32g=
 github.com/uiscsi/uiscsi v1.4.0 h1:zjwGuC64lWIo4GY+qgNvl9pUSlJRLfhPnJM4bY1bz3c=
 github.com/uiscsi/uiscsi v1.4.0/go.mod h1:dHHfId8JIxqtlhinYGt+j6yCEYb9nNT/QKjGGHI8cDQ=
 go.uber.org/goleak v1.3.0 h1:2K3zAYmnTNqV73imy9J1T3WC+gmCePx2hEGkimedGto=
 go.uber.org/goleak v1.3.0/go.mod h1:CoHD4mav9JJNrW/WLlf7HGZPjdw8EucARQHekz1X6bE=
+golang.org/x/sys v0.36.0 h1:KVRy2GtZBrk1cBYA7MKu5bEZFxQk4NIDV6RLVcC8o0k=
+golang.org/x/sys v0.36.0/go.mod h1:OgkHotnGiDImocRcuBABYBEXf8A9a87e/uXjp9XT3ks=
 gopkg.in/yaml.v3 v3.0.1 h1:fxVm/GzAzEWqLHuvctI91KS9hhNmmWOoWu0XTYJS7CA=
 gopkg.in/yaml.v3 v3.0.1/go.mod h1:K4uyk7z7BCEPqu6E+C64Yfv1cQ7kz7rIZviUmN+EgEM=
