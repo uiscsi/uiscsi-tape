@@ -555,7 +555,7 @@ func (m *MockTapeDrive) handleModeSelect6(conn net.Conn, itt, cmdSN uint32, stat
 	for offset+2 <= len(data) {
 		pc := data[offset] & 0x3F
 		pl := int(data[offset+1])
-		if pc == 0x0F && offset+2+pl <= len(data) {
+		if pc == 0x0F && offset+4 <= len(data) && pl >= 2 {
 			dce := data[offset+2]&0x80 != 0
 			dde := data[offset+3]&0x80 != 0
 			m.media.SetCompression(dce, dde)
