@@ -490,7 +490,7 @@ func (m *MockTapeDrive) handleReadPosition(conn net.Conn, itt, cmdSN uint32, sta
 	if pi.BOP {
 		resp[0] = 0x80
 	}
-	binary.BigEndian.PutUint32(resp[4:8], pi.Position)
+	binary.BigEndian.PutUint32(resp[4:8], uint32(pi.Position))
 	sendDataIn(conn, itt, cmdSN, statSN, resp, 0x00)
 }
 
