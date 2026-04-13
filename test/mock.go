@@ -265,7 +265,7 @@ func (m *MockTapeDrive) handleSCSICommand(conn net.Conn, bhs [48]byte, data []by
 	// internally (Read, Write, etc.), the internal check finds the queue
 	// already consumed -- no double-fire.
 	m.mu.Lock()
-	sense := m.media.ConsumeInjectedError(byte(cdbOpcode))
+	sense, _ := m.media.ConsumeInjectedError(byte(cdbOpcode))
 	m.mu.Unlock()
 	if sense != nil {
 		sendSCSIResponse(conn, itt, cmdSN, statSN, 0x02, tapesim.EncodeFixedSense(sense))

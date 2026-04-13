@@ -38,10 +38,11 @@ func TestWriteAndReadBack(t *testing.T) {
 		t.Fatalf("Rewind: %v", err)
 	}
 
-	// Read back.
+	// Read back. Buffer (256) > record (50) → ILI with positive residue
+	// is expected per SSC-3 variable-block record boundaries (HARD-01).
 	buf := make([]byte, 256)
 	n, err := drive.Read(ctx, buf)
-	if err != nil {
+	if err != nil && !errors.Is(err, tape.ErrILI) {
 		t.Fatalf("Read: %v", err)
 	}
 
@@ -109,10 +110,10 @@ func TestReadFilemark(t *testing.T) {
 		t.Fatalf("Rewind: %v", err)
 	}
 
-	// First read gets the data.
+	// First read gets the data. Buffer > record → ILI is acceptable (HARD-01).
 	buf := make([]byte, 256)
 	n, err := drive.Read(ctx, buf)
-	if err != nil {
+	if err != nil && !errors.Is(err, tape.ErrILI) {
 		t.Fatalf("Read data: %v", err)
 	}
 	if string(buf[:n]) != "before filemark" {
@@ -208,10 +209,10 @@ func TestRewind(t *testing.T) {
 		t.Fatalf("Rewind: %v", err)
 	}
 
-	// Should be able to read from the beginning.
+	// Should be able to read from the beginning. Buffer > record → ILI acceptable (HARD-01).
 	buf := make([]byte, 256)
 	n, err := drive.Read(ctx, buf)
-	if err != nil {
+	if err != nil && !errors.Is(err, tape.ErrILI) {
 		t.Fatalf("Read after rewind: %v", err)
 	}
 	if !bytes.Equal(buf[:n], testData) {
@@ -241,10 +242,10 @@ func TestWriteFilemarks(t *testing.T) {
 		t.Fatalf("Rewind: %v", err)
 	}
 
-	// Read the data record.
+	// Read the data record. Buffer > record → ILI acceptable (HARD-01).
 	buf := make([]byte, 256)
 	n, err := drive.Read(ctx, buf)
-	if err != nil {
+	if err != nil && !errors.Is(err, tape.ErrILI) {
 		t.Fatalf("Read: %v", err)
 	}
 	if string(buf[:n]) != "record one" {

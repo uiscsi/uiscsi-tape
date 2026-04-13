@@ -113,17 +113,27 @@ func TestMockInjectFilemark(t *testing.T) {
 		t.Fatalf("REWIND: %v", err)
 	}
 
-	// Read 512 bytes (to reach filemark position)
-	readCDB := ssc.ReadCDB(false, false, 512)
-	result, err := sess.Raw().Execute(ctx, 0, readCDB, uiscsi.WithDataIn(512))
+	// Read 1024 bytes (full record) to advance past the record.
+	// With record boundaries (HARD-01), variable-block reads return one
+	// record at a time. Buffer must match record size for GOOD status.
+	readCDB := ssc.ReadCDB(false, false, 1024)
+	result, err := sess.Raw().Execute(ctx, 0, readCDB, uiscsi.WithDataIn(1024))
 	if err != nil {
 		t.Fatalf("READ (advance): %v", err)
 	}
+	// ILI is acceptable here (buffer == record gives GOOD, but the
+	// injected filemark at 512 is inside the record — the filemark check
+	// runs first at position 0 and won't match, so we get the record).
 	if result.Status != 0x00 {
 		t.Fatalf("READ (advance) status = 0x%02X, want 0x00", result.Status)
 	}
 
-	// Now at position 512 -- should hit the filemark
+	// Now at position 1024 -- filemark was injected at 512 but record
+	// boundaries moved us past it. Inject a new filemark at 1024 to test
+	// filemark detection at a record boundary.
+	mock.InjectFilemark(1024)
+
+	// Should hit the filemark at position 1024
 	readCDB = ssc.ReadCDB(false, false, 512)
 	result, err = sess.Raw().Execute(ctx, 0, readCDB, uiscsi.WithDataIn(512))
 	if err != nil {

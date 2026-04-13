@@ -165,7 +165,7 @@ func TestReadAheadZeroDepth(t *testing.T) {
 
 	buf := make([]byte, 256)
 	n, err := drive.Read(ctx, buf)
-	if err != nil {
+	if err != nil && !errors.Is(err, tape.ErrILI) {
 		t.Fatalf("Read: %v", err)
 	}
 	if string(buf[:n]) != "sync test" {
@@ -192,7 +192,7 @@ func TestReadAheadWriteInvalidates(t *testing.T) {
 
 	buf := make([]byte, 256)
 	_, err = drive.Read(ctx, buf)
-	if err != nil {
+	if err != nil && !errors.Is(err, tape.ErrILI) {
 		t.Fatalf("Read: %v", err)
 	}
 
