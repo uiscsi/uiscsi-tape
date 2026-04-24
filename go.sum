@@ -4,8 +4,8 @@ github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZb
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/stretchr/testify v1.8.0 h1:pSgiaMZlXftHpm5L7V1+rVB+AZJydKsMxsQBIJw4PKk=
 github.com/stretchr/testify v1.8.0/go.mod h1:yNjHg4UonilssWZ8iaSj1OCr/vHnekPRkoO+kdMU+MU=
-github.com/uiscsi/go-tcmu v0.1.1 h1:ksOikZoUsamMv231gtz6xFdo+JXF2or8eSj0SB5Xx8g=
-github.com/uiscsi/go-tcmu v0.1.1/go.mod h1:+cmC2TM9UhPtPakZ2MVLz/esyNH0ODmcDGblNwps2MU=
+github.com/uiscsi/go-tcmu v0.1.3 h1:SFn8HNcduqSsV5jxUfzF8us83XOm82wN8bBV154DBsI=
+github.com/uiscsi/go-tcmu v0.1.3/go.mod h1:+cmC2TM9UhPtPakZ2MVLz/esyNH0ODmcDGblNwps2MU=
 github.com/uiscsi/tapesim v0.2.1 h1:BNXg3kny13d1FJvkR0IcOZcXRKwrQXjrUvCE4/cS+X8=
 github.com/uiscsi/tapesim v0.2.1/go.mod h1:9YdKxLPMIX+D6ZkkQjK3r2Zi6io/ON9Ku5zLmnStDNU=
 github.com/uiscsi/tapesim-tcmu v0.1.1 h1:z0zZksiPMhwY1TypAGu4lhNl1sna9iQoxLjPZeYtMBc=

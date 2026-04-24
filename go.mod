@@ -8,7 +8,7 @@ require (
 )
 
 require (
-	github.com/uiscsi/go-tcmu v0.1.1
+	github.com/uiscsi/go-tcmu v0.1.3
 	github.com/uiscsi/tapesim-tcmu v0.1.1
 	go.uber.org/goleak v1.3.0
 )
